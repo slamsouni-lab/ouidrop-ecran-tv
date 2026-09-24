@@ -2,7 +2,8 @@ import {
   AfterViewInit, Component, ElementRef, HostListener, OnDestroy, ViewChild, computed, effect, signal,
 } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { combineLatest } from 'rxjs';
+import { combineLatest, EMPTY, Subscription, timer } from 'rxjs';
+import { catchError, switchMap } from 'rxjs/operators';
 // ⚠️ On importe `L` depuis '../leaflet-global', jamais directement depuis
 // 'leaflet' : c'est ce module qui expose `L` sur `window` pour le plugin
 // "leaflet.markercluster" (voir son commentaire), et il faut réutiliser
@@ -27,6 +28,8 @@ const CLUSTER_MAX_ZOOM = 11;
 const MAPTILER_STYLE = 'streets-v2';
 /** Mode TV : durée d'affichage de chaque dropper dans le volet. */
 const CYCLE_MS = 12_000;
+/** Fréquence de rafraîchissement des données réseau (statut, casiers, activité…). */
+const REFRESH_MS = 30_000;
 /** Après un clic sur un pin, le défilement attend un peu avant de reprendre. */
 const MANUAL_PAUSE_MS = 60_000;
 /** Longueur du cercle de la jauge (2 × π × rayon 64). */
@@ -57,6 +60,23 @@ export class DropperList implements AfterViewInit, OnDestroy {
   selectedIndex = signal(0);
   selected = computed(() => this.droppers()[this.selectedIndex()] ?? null);
   isPanelOpen = signal(true);
+  /**
+   * true si la dernière tentative de rafraîchissement a échoué. On ne vide
+   * jamais `droppers` dans ce cas : l'écran garde les dernières données
+   * connues (mieux vaut un statut vieux de quelques dizaines de secondes
+   * qu'un écran noir), on affiche juste un signal discret dans l'en-tête.
+   */
+  connectionError = signal(false);
+  /**
+   * Popup fermable, affichée en plus du badge discret au tout début d'une
+   * panne (transition ok → erreur). L'utilisateur peut la fermer sans faire
+   * disparaître `connectionError` : le badge rouge, lui, reste tant que la
+   * panne dure. Elle ne réapparaît pas à chaque tentative ratée tant que la
+   * panne est la même — seulement si la connexion revient puis retombe.
+   */
+  showErrorPopup = signal(false);
+  /** Empêche de revenir au 1er dropper à chaque rafraîchissement — seulement au tout premier chargement. */
+  private hasLoadedOnce = false;
 
   // ---------- Chiffres réseau (provisoires : seront branchés sur Mercure) ----------
   orderCount = signal(128);
@@ -141,6 +161,7 @@ export class DropperList implements AfterViewInit, OnDestroy {
   );
   private clockTimer?: ReturnType<typeof setInterval>;
   private cycleTimer?: ReturnType<typeof setTimeout>;
+  private refreshSubscription?: Subscription;
 
   constructor(
     private droppersService: Droppers,
@@ -163,6 +184,16 @@ export class DropperList implements AfterViewInit, OnDestroy {
         }
       });
       this.updateLeader();
+    });
+
+    // Nouvel épisode de panne (la connexion passe de OK à en erreur) :
+    // on réaffiche la popup, même si l'utilisateur avait fermé la précédente.
+    // Un `set(true)` répété (tant que la panne dure) ne redéclenche pas cet
+    // effet : les signaux Angular ignorent une écriture qui ne change rien.
+    effect(() => {
+      if (this.connectionError()) {
+        this.showErrorPopup.set(true);
+      }
     });
   }
 
@@ -212,21 +243,36 @@ export class DropperList implements AfterViewInit, OnDestroy {
     this.addCities();
 
     // Les droppers (API) + leurs infos d'exploitation (mock pour l'instant,
-    // Sauron demain — voir DropperExtrasService). Les deux appels partent en
-    // parallèle et on attend les deux avant d'afficher quoi que ce soit.
-    combineLatest([this.droppersService.getDroppers(), this.extrasService.getExtras()]).subscribe(([data, extras]) => {
-      const details = data.map(d => toDetails(d, extras));
-      details.forEach((d, index) => {
-        const marker = L.marker([d.latitude, d.longitude], { icon: this.pinIcon(d), keyboard: false })
-          .on('click', () => this.select(index, true));
-        this.markers.set(d.nom, marker);
-        this.markerData.set(marker, d);
-        this.clusterGroup.addLayer(marker);
+    // Sauron demain — voir DropperExtrasService). Chargement immédiat puis
+    // rafraîchissement toutes les REFRESH_MS : indispensable pour un écran
+    // qui tourne en continu sans qu'on revienne y toucher. Si une tentative
+    // échoue (API en panne, réseau coupé…), `catchError` l'empêche de casser
+    // le flux — on garde les dernières données affichées, on lève juste le
+    // signal `connectionError`, et on retente au prochain tick.
+    this.refreshSubscription = timer(0, REFRESH_MS)
+      .pipe(
+        switchMap(() =>
+          combineLatest([this.droppersService.getDroppers(), this.extrasService.getExtras()]).pipe(
+            catchError(err => {
+              console.error('Échec du rafraîchissement des droppers :', err);
+              this.connectionError.set(true);
+              return EMPTY;
+            }),
+          ),
+        ),
+      )
+      .subscribe(([data, extras]) => {
+        this.connectionError.set(false);
+        const details = data.map(d => toDetails(d, extras));
+        this.syncMarkers(details);
+        this.droppers.set(details);
+        // Le volet ne saute sur le 1er dropper qu'au tout premier chargement :
+        // sur les rafraîchissements suivants, on ne dérange pas ce qui est affiché.
+        if (!this.hasLoadedOnce) {
+          this.hasLoadedOnce = true;
+          this.select(0);
+        }
       });
-      this.clusterGroup.addTo(this.map);
-      this.droppers.set(details);
-      this.select(0);
-    });
 
     // Au-delà d'un certain zoom, on bascule sur le vrai fond de carte MapTiler
     this.map.on('zoomend', () => this.syncDetailLayer());
@@ -239,6 +285,7 @@ export class DropperList implements AfterViewInit, OnDestroy {
   ngOnDestroy() {
     clearInterval(this.clockTimer);
     clearTimeout(this.cycleTimer);
+    this.refreshSubscription?.unsubscribe();
     this.map?.remove();
   }
 
@@ -261,6 +308,11 @@ export class DropperList implements AfterViewInit, OnDestroy {
   closePanel() {
     this.isPanelOpen.set(false);
     clearTimeout(this.cycleTimer);
+  }
+
+  /** Ferme juste la popup de panne — le badge discret dans l'en-tête reste affiché tant que la panne dure. */
+  dismissErrorPopup() {
+    this.showErrorPopup.set(false);
   }
 
   toggleAutoCycle() {
@@ -378,6 +430,45 @@ export class DropperList implements AfterViewInit, OnDestroy {
         <span class="pin__stem"></span>
         <span class="pin__label">${this.escapeHtml(d.site)}</span>`,
     });
+  }
+
+  /**
+   * Met à jour les pins de la carte à partir des dernières données reçues.
+   * Les pins déjà présents sont rafraîchis sur place (icône, données liées) —
+   * jamais détruits puis recréés, sinon on perdrait la sélection en cours et
+   * ça clignoterait à l'écran à chaque rafraîchissement automatique.
+   */
+  private syncMarkers(details: DropperDetails[]) {
+    const seen = new Set<string>();
+    details.forEach((d, index) => {
+      seen.add(d.nom);
+      const existing = this.markers.get(d.nom);
+      if (existing) {
+        existing.setIcon(this.pinIcon(d));
+        existing.off('click').on('click', () => this.select(index, true));
+        this.markerData.set(existing, d);
+        return;
+      }
+      const marker = L.marker([d.latitude, d.longitude], { icon: this.pinIcon(d), keyboard: false })
+        .on('click', () => this.select(index, true));
+      this.markers.set(d.nom, marker);
+      this.markerData.set(marker, d);
+      this.clusterGroup.addLayer(marker);
+    });
+
+    // Un dropper qui aurait disparu de l'API entre deux rafraîchissements
+    // (cas rare) : on retire son pin plutôt que de le laisser à l'écran.
+    for (const [nom, marker] of this.markers) {
+      if (!seen.has(nom)) {
+        this.clusterGroup.removeLayer(marker);
+        this.markerData.delete(marker);
+        this.markers.delete(nom);
+      }
+    }
+
+    if (!this.map.hasLayer(this.clusterGroup)) {
+      this.clusterGroup.addTo(this.map);
+    }
   }
 
   /**

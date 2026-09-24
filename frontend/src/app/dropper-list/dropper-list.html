@@ -21,13 +21,37 @@
     <img class="brand__icon" src="brand/ouidrop-icon-blue.svg" alt="" />
     <div class="brand__name">
       <img class="brand__wordmark" src="brand/ouidrop-wordmark-white.svg" alt="OUIDROP" />
-      <p class="brand__sub"><span class="live-dot"></span>Réseau Dropper · en direct</p>
+      @if (connectionError()) {
+        <p class="brand__sub brand__sub--error" role="status">
+          <span class="live-dot live-dot--error"></span>Connexion instable · dernières données affichées
+        </p>
+      } @else {
+        <p class="brand__sub"><span class="live-dot"></span>Réseau Dropper · en direct</p>
+      }
     </div>
     <div class="brand__clock">
       <p class="brand__time">{{ clock() }}</p>
       <p class="brand__date">{{ today() }}</p>
     </div>
   </header>
+
+  <!-- Popup de panne : en plus du badge discret dans l'en-tête, affichée une
+       fois par épisode de panne, fermable — le badge, lui, reste tant que
+       la connexion n'est pas rétablie. -->
+  @if (showErrorPopup()) {
+    <div class="error-toast" role="alert">
+      <svg class="alert__icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 3.5 22 20.5H2z" /><path d="M12 10v4.5M12 17.2v.3" />
+      </svg>
+      <div class="error-toast__body">
+        <p class="alert__title">Connexion instable</p>
+        <p class="alert__text">Impossible de contacter le serveur. Les données affichées datent de la dernière mise à jour réussie.</p>
+      </div>
+      <button type="button" class="error-toast__close" (click)="dismissErrorPopup()" aria-label="Fermer">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" /></svg>
+      </button>
+    </div>
+  }
 
   <!-- 3. Volet du dropper affiché -->
   <div #panel class="panel-wrap" [class.is-open]="isPanelOpen()">

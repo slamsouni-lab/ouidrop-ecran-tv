@@ -78,6 +78,71 @@
   animation: live 1.8s ease-out infinite;
 }
 
+/* Rafraîchissement en échec : signal discret, pas alarmiste (l'écran garde
+   les dernières données connues) — même gabarit que .brand__sub, juste en rouge signal. */
+.brand__sub--error { color: var(--od-rouge); }
+.live-dot--error {
+  background: var(--od-rouge);
+  box-shadow: 0 0 0 0 rgba(226, 36, 36, 0.7);
+  animation: live-error 1.8s ease-out infinite;
+}
+
+/* Popup de panne — une fois par épisode, fermable, au-dessus de tout le
+   reste (même le volet). Carte claire comme le volet, pour rester lisible
+   posée sur la carte, avec le même vocabulaire visuel que .alert. */
+.error-toast {
+  position: absolute;
+  top: 34px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  width: 440px;
+  max-width: calc(100vw - 72px);
+  padding: 16px 18px;
+  background: #fff;
+  border-radius: 2px;
+  border-left: 4px solid var(--od-rouge);
+  box-shadow: 0 28px 48px rgba(3, 12, 31, 0.55);
+  animation: toast-in 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.error-toast .alert__icon { margin-top: 1px; }
+.error-toast .alert__title,
+.error-toast .alert__text { color: var(--od-navy); }
+.error-toast .alert__title { color: var(--od-rouge); }
+.error-toast__body { flex: 1; min-width: 0; }
+.error-toast__close {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--od-navy-soft);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.error-toast__close:hover { background: var(--od-clair); color: var(--od-navy); }
+.error-toast__close:focus-visible { outline: 2px solid var(--od-vif); outline-offset: 2px; }
+.error-toast__close svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, -12px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
 /* ---------- Volet ---------- */
 
 .panel-wrap {
@@ -669,9 +734,15 @@
   100% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
 }
 
+@keyframes live-error {
+  0% { box-shadow: 0 0 0 0 rgba(226, 36, 36, 0.7); }
+  100% { box-shadow: 0 0 0 10px rgba(226, 36, 36, 0); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .panel-wrap { transition: none; }
   .live-dot,
   .chip__ring::after,
-  .feed__item { animation: none; }
+  .feed__item,
+  .error-toast { animation: none; }
 }
