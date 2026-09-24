@@ -1,29 +1,93 @@
-import { Injectable } from '@angular/core';
-import { Observable, of } from 'rxjs';
+import { Injectable, NgZone } from '@angular/core';
+import { BehaviorSubject, EMPTY, merge, Observable, of } from 'rxjs';
+import { scan } from 'rxjs/operators';
 import { DropperExtras } from './dropper';
+import { environment } from '../environments/environment';
 
 // ---------------------------------------------------------------------------
 // INFOS D'EXPLOITATION D'UN DROPPER (statut, casiers, activité récente…).
 //
-// Aujourd'hui : `getExtras()` renvoie des données d'exemple codées en dur,
-// ci-dessous, enveloppées dans un Observable pour avoir déjà la même forme
-// qu'un futur appel HTTP.
+// `getExtras()` émet :
+//  1. un premier instantané tout de suite (aujourd'hui : les données
+//     d'exemple ci-dessous — demain, au tout premier chargement, ce sera
+//     plutôt une réponse Sauron via un appel HTTP classique) ;
+//  2. puis un nouvel instantané à chaque poussée du hub MERCURE, dès qu'un
+//     Dropper change côté backend — voir `mercureUpdates()` plus bas. C'est
+//     ÇA le "rafraîchissement auto" de l'écran : plus besoin d'interroger
+//     l'API nous-mêmes à intervalles réguliers, on est prévenus en direct.
 //
-// Demain (Sauron) : ce sera le SEUL fichier à modifier. Remplacer le corps
-// de `getExtras()` par un vrai appel (par ex. `this.http.get<...>(...)`
-// vers l'API Sauron, ou vers un endpoint du backend Symfony qui la relaie),
-// puis transformer sa réponse en `Record<string, DropperExtras>` — un objet
-// indexé par le champ "nom" EXACT renvoyé par /api/droppers.
+// ⚠️ À CONFIGURER avant que ça marche pour de vrai : src/environments/
+// environment.ts (`mercureHubUrl`, `mercureTopic`). Tant que c'est vide,
+// `getExtras()` reste sur les données d'exemple, sans planter.
 //
-// Tant que cette forme de retour est respectée, rien d'autre dans l'app n'a
-// besoin de changer : ni dropper-list.ts (qui appelle juste `getExtras()`),
-// ni `toDetails()` dans dropper-extras.ts (qui ne connaît que la forme
-// `DropperExtras`, jamais d'où elle vient).
+// ⚠️ HYPOTHÈSE À VALIDER avec le backend : on suppose ici que chaque message
+// Mercure contient un `Record<string, DropperExtras>` — soit l'instantané
+// complet du réseau, soit juste les Droppers qui ont changé (les deux
+// marchent avec le `scan` ci-dessous, qui fusionne chaque message reçu dans
+// le dernier instantané connu). Si le backend envoie autre chose (un seul
+// Dropper à plat, un diff dans un autre format…), c'est le seul endroit à
+// adapter : `mercureUpdates()`.
+//
+// Tant que `getExtras()` garde cette forme de retour, rien d'autre dans
+// l'app n'a besoin de changer : ni dropper-list.ts (qui appelle juste
+// `getExtras()`), ni `toDetails()` dans dropper-extras.ts (qui ne connaît
+// que la forme `DropperExtras`, jamais d'où elle vient ni à quel rythme).
 // ---------------------------------------------------------------------------
 @Injectable({ providedIn: 'root' })
 export class DropperExtrasService {
+  /**
+   * true = dernier événement Mercure connu positif (connexion ouverte ou
+   * message reçu) ; false = la connexion vient de tomber. EventSource se
+   * reconnecte tout seul (comportement natif du navigateur), donc ce statut
+   * remonte tout seul dès que le flux reprend.
+   */
+  private readonly mercureOk = new BehaviorSubject(true);
+
+  constructor(private zone: NgZone) {}
+
   getExtras(): Observable<Record<string, DropperExtras>> {
-    return of(MOCK_EXTRAS);
+    return merge(of(MOCK_EXTRAS), this.mercureUpdates()).pipe(
+      // Fusionne chaque instantané/patch reçu dans le dernier connu, plutôt
+      // que de l'écraser : un message Mercure partiel ne fait pas disparaître
+      // les Droppers qu'il ne mentionne pas.
+      scan((snapshot, patch) => ({ ...snapshot, ...patch }), {} as Record<string, DropperExtras>),
+    );
+  }
+
+  /** true = flux Mercure en bonne santé (ou pas encore configuré, ce n'est pas une panne). */
+  liveStatus(): Observable<boolean> {
+    return this.mercureOk.asObservable();
+  }
+
+  private mercureUpdates(): Observable<Record<string, DropperExtras>> {
+    if (!environment.mercureHubUrl) return EMPTY; // pas encore configuré : pas d'erreur, juste pas de direct.
+
+    return new Observable<Record<string, DropperExtras>>(subscriber => {
+      const url = new URL(environment.mercureHubUrl, window.location.origin);
+      url.searchParams.append('topic', environment.mercureTopic);
+      const source = new EventSource(url);
+
+      source.onopen = () => this.zone.run(() => this.mercureOk.next(true));
+
+      source.onmessage = event => {
+        this.zone.run(() => {
+          try {
+            subscriber.next(JSON.parse(event.data));
+            this.mercureOk.next(true);
+          } catch (err) {
+            console.error('Message Mercure illisible :', event.data, err);
+          }
+        });
+      };
+
+      source.onerror = () => {
+        // Pas d'action manuelle : EventSource retente la connexion tout
+        // seul. On se contente de lever le signal pour l'écran.
+        this.zone.run(() => this.mercureOk.next(false));
+      };
+
+      return () => source.close();
+    });
   }
 }
 

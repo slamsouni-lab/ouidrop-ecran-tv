@@ -28,7 +28,12 @@ const CLUSTER_MAX_ZOOM = 11;
 const MAPTILER_STYLE = 'streets-v2';
 /** Mode TV : durée d'affichage de chaque dropper dans le volet. */
 const CYCLE_MS = 12_000;
-/** Fréquence de rafraîchissement des données réseau (statut, casiers, activité…). */
+/**
+ * Fréquence de sondage de la LISTE des droppers (/api/droppers — un point
+ * installé ou retiré). Les infos d'exploitation (statut, casiers, activité),
+ * elles, arrivent en direct par Mercure et ne dépendent pas de cette valeur
+ * — voir DropperExtrasService.
+ */
 const REFRESH_MS = 30_000;
 /** Après un clic sur un pin, le défilement attend un peu avant de reprendre. */
 const MANUAL_PAUSE_MS = 60_000;
@@ -162,6 +167,7 @@ export class DropperList implements AfterViewInit, OnDestroy {
   private clockTimer?: ReturnType<typeof setInterval>;
   private cycleTimer?: ReturnType<typeof setTimeout>;
   private refreshSubscription?: Subscription;
+  private liveStatusSubscription?: Subscription;
 
   constructor(
     private droppersService: Droppers,
@@ -242,37 +248,51 @@ export class DropperList implements AfterViewInit, OnDestroy {
     });
     this.addCities();
 
-    // Les droppers (API) + leurs infos d'exploitation (mock pour l'instant,
-    // Sauron demain — voir DropperExtrasService). Chargement immédiat puis
-    // rafraîchissement toutes les REFRESH_MS : indispensable pour un écran
-    // qui tourne en continu sans qu'on revienne y toucher. Si une tentative
-    // échoue (API en panne, réseau coupé…), `catchError` l'empêche de casser
-    // le flux — on garde les dernières données affichées, on lève juste le
-    // signal `connectionError`, et on retente au prochain tick.
-    this.refreshSubscription = timer(0, REFRESH_MS)
-      .pipe(
-        switchMap(() =>
-          combineLatest([this.droppersService.getDroppers(), this.extrasService.getExtras()]).pipe(
-            catchError(err => {
-              console.error('Échec du rafraîchissement des droppers :', err);
-              this.connectionError.set(true);
-              return EMPTY;
-            }),
-          ),
+    // La LISTE des droppers (API /api/droppers) change rarement — un nouveau
+    // point installé, un retiré — donc un simple sondage périodique suffit.
+    const droppers$ = timer(0, REFRESH_MS).pipe(
+      switchMap(() =>
+        this.droppersService.getDroppers().pipe(
+          catchError(err => {
+            console.error('Échec du rafraîchissement de la liste des droppers :', err);
+            this.connectionError.set(true);
+            return EMPTY;
+          }),
         ),
-      )
-      .subscribe(([data, extras]) => {
-        this.connectionError.set(false);
-        const details = data.map(d => toDetails(d, extras));
-        this.syncMarkers(details);
-        this.droppers.set(details);
-        // Le volet ne saute sur le 1er dropper qu'au tout premier chargement :
-        // sur les rafraîchissements suivants, on ne dérange pas ce qui est affiché.
-        if (!this.hasLoadedOnce) {
-          this.hasLoadedOnce = true;
-          this.select(0);
-        }
-      });
+      ),
+    );
+
+    // Les infos d'EXPLOITATION (statut, casiers, activité) changent tout le
+    // temps, elles : on ne les sonde plus nous-mêmes, `getExtras()` est
+    // souscrit UNE SEULE FOIS et pousse un nouvel instantané dès que Mercure
+    // signale un changement (voir DropperExtrasService). C'est ça, le vrai
+    // rafraîchissement "en direct" de l'écran.
+    //
+    // ⚠️ Ne PAS mettre `extrasService.getExtras()` dans le `switchMap`
+    // ci-dessus : ça couperait et rouvrirait la connexion Mercure à chaque
+    // tick du minuteur, ce qui viderait le "direct" de son intérêt.
+    const extras$ = this.extrasService.getExtras();
+
+    // Statut de la connexion Mercure elle-même (indépendant des données) :
+    // dès qu'elle tombe, on lève le badge — `combineLatest` ci-dessous le
+    // rabaissera de lui-même à la prochaine émission réussie (droppers OU
+    // extras, peu importe laquelle).
+    this.liveStatusSubscription = this.extrasService.liveStatus().subscribe(ok => {
+      if (!ok) this.connectionError.set(true);
+    });
+
+    this.refreshSubscription = combineLatest([droppers$, extras$]).subscribe(([data, extras]) => {
+      this.connectionError.set(false);
+      const details = data.map(d => toDetails(d, extras));
+      this.syncMarkers(details);
+      this.droppers.set(details);
+      // Le volet ne saute sur le 1er dropper qu'au tout premier chargement :
+      // sur les rafraîchissements suivants, on ne dérange pas ce qui est affiché.
+      if (!this.hasLoadedOnce) {
+        this.hasLoadedOnce = true;
+        this.select(0);
+      }
+    });
 
     // Au-delà d'un certain zoom, on bascule sur le vrai fond de carte MapTiler
     this.map.on('zoomend', () => this.syncDetailLayer());
@@ -286,6 +306,7 @@ export class DropperList implements AfterViewInit, OnDestroy {
     clearInterval(this.clockTimer);
     clearTimeout(this.cycleTimer);
     this.refreshSubscription?.unsubscribe();
+    this.liveStatusSubscription?.unsubscribe();
     this.map?.remove();
   }
 
