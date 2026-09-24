@@ -1,0 +1,210 @@
+/* =========================================================================
+   Charte graphique OUIDROP 2026 — couleurs et typographies
+   ========================================================================= */
+:root {
+  --od-navy: #0D2E5B;      /* Bleu OUIDROP — couleur principale (fonds, textes, logo) */
+  --od-intense: #1E3A8A;   /* Bleu intense — structure, éléments interactifs */
+  --od-vif: #3B82F6;       /* Bleu vif — accent : focus, mises en avant */
+  --od-clair: #E5EAF5;     /* Bleu clair — fonds et zones d'interface */
+  --od-rouge: #E22424;     /* Rouge signal — uniquement les points d'attention */
+  --od-navy-soft: #566D8C; /* Bleu OUIDROP à 70 % sur blanc : textes secondaires */
+
+  --font-title: 'Saira Condensed', 'Arial Narrow', sans-serif; /* titres, chiffres, CTA */
+  --font-text: 'Inter', system-ui, sans-serif;                  /* textes courants */
+
+  /* Carte « blueprint » */
+  --map-sea: #081E3F;
+  --map-land: #0B2750;
+  --map-land-fr: #10336A;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--map-sea);
+}
+
+body {
+  font-family: var(--font-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* =========================================================================
+   Éléments dessinés par Leaflet : ils sont créés hors du template Angular,
+   donc les styles du composant ne les atteignent pas → ils vivent ici.
+   ========================================================================= */
+
+.leaflet-container {
+  font-family: var(--font-text);
+  background: var(--map-sea);
+}
+
+/* Fond MapTiler (visible seulement en zoom détaillé) passé au filtre « bleu OUIDROP » */
+.leaflet-tile-pane {
+  filter: url(#od-duotone);
+}
+
+/* Pays voisins et France */
+.land {
+  fill: var(--map-land);
+  fill-opacity: 1;
+  stroke: rgba(229, 234, 245, 0.14);
+  stroke-width: 1;
+}
+.land--fr {
+  fill: var(--map-land-fr);
+  stroke: rgba(59, 130, 246, 0.9);
+  stroke-width: 1.5;
+}
+.is-detailed .land { fill-opacity: 0; }
+
+/* Quadrillage façon plan technique (1 trait par degré) */
+.map-graticule {
+  fill: none;
+  stroke: rgba(229, 234, 245, 0.07);
+  stroke-width: 1;
+  stroke-dasharray: 2 6;
+}
+.map-cross {
+  fill: none;
+  stroke: rgba(229, 234, 245, 0.2);
+  stroke-width: 1;
+}
+.is-detailed .map-graticule,
+.is-detailed .map-cross { display: none; }
+
+/* Villes repères */
+.city {
+  border-radius: 50%;
+  background: rgba(229, 234, 245, 0.55);
+}
+.city__label {
+  position: absolute;
+  left: 11px;
+  top: -4px;
+  font: 500 13px/1 var(--font-title);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: rgba(229, 234, 245, 0.5);
+}
+.is-detailed .city { display: none; }
+
+/* ---------- Pins des droppers ---------- */
+
+.pin { cursor: pointer; }
+
+.pin__badge {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 38px;
+  height: 38px;
+  overflow: visible;
+  transform-origin: 50% 100%;
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  filter: drop-shadow(0 6px 10px rgba(3, 12, 31, 0.6));
+}
+.pin__shape {
+  fill: var(--od-vif);
+  stroke: #fff;
+  stroke-width: 0;
+  paint-order: stroke;
+  transition: stroke-width 0.3s ease;
+}
+.pin__o { fill: #fff; }
+.pin.is-out .pin__shape { fill: var(--od-rouge); }
+
+.pin__stem {
+  position: absolute;
+  left: 18px;
+  top: 38px;
+  width: 2px;
+  height: 10px;
+  background: rgba(229, 234, 245, 0.75);
+}
+.pin::after {
+  /* le point au sol = position exacte du dropper */
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 48px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(8, 30, 63, 0.6);
+}
+
+/* Ondes quand le dropper est en cours d'utilisation */
+.pin__pulse {
+  position: absolute;
+  left: 19px;
+  top: 52px;
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  border-radius: 50%;
+  border: 2px solid var(--od-vif);
+  opacity: 0;
+  pointer-events: none;
+}
+.pin.is-busy .pin__pulse { animation: pin-pulse 2s ease-out infinite; }
+.pin.is-busy .pin__badge { filter: drop-shadow(0 0 14px rgba(59, 130, 246, 0.75)) drop-shadow(0 6px 10px rgba(3, 12, 31, 0.6)); }
+
+.pin__label {
+  position: absolute;
+  left: 46px;
+  top: 8px;
+  padding: 3px 0;
+  font: 600 17px/1 var(--font-title);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(3, 12, 31, 0.9), 0 0 10px rgba(3, 12, 31, 0.9);
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.pin:hover .pin__badge { transform: scale(1.12); }
+
+/* Pin du dropper affiché dans le volet */
+.pin.is-selected .pin__badge { transform: scale(1.3); }
+.pin.is-selected .pin__shape { stroke-width: 9; }
+.pin.is-selected .pin__label {
+  padding: 5px 9px;
+  transform: translateX(6px);
+  background: #fff;
+  color: var(--od-navy);
+  text-shadow: none;
+}
+
+@keyframes pin-pulse {
+  from { transform: scale(0.25); opacity: 0.9; }
+  to { transform: scale(1.5); opacity: 0; }
+}
+
+/* Trait de rappel volet → pin (les tirets avancent vers le pin) */
+.leader {
+  fill: none;
+  stroke: var(--od-vif);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 6;
+  animation: leader-flow 1.2s linear infinite;
+}
+.leader-start { fill: var(--od-vif); fill-opacity: 1; stroke: none; }
+.leader-end { fill: var(--map-land-fr); fill-opacity: 1; stroke: var(--od-vif); stroke-width: 1.5; }
+@keyframes leader-flow { to { stroke-dashoffset: -12; } }
+
+/* Crédits (obligatoires quand le fond MapTiler est affiché) */
+.leaflet-control-attribution.leaflet-control {
+  background: rgba(8, 30, 63, 0.75);
+  color: rgba(229, 234, 245, 0.6);
+  font-size: 11px;
+}
+.leaflet-control-attribution a { color: rgba(229, 234, 245, 0.85); }
+
+@media (prefers-reduced-motion: reduce) {
+  .pin.is-busy .pin__pulse { animation: none; opacity: 0.6; transform: scale(0.9); }
+  .leader { animation: none; }
+}

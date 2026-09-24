@@ -1,0 +1,276 @@
+<div class="tv">
+
+  <!-- 1. La carte : Leaflet dessine tout à l'intérieur -->
+  <div #mapContainer class="tv__map"></div>
+
+  <!-- Filtre « bleu OUIDROP » de la charte (gradient map), appliqué au fond MapTiler quand on zoome -->
+  <svg class="tv__defs" aria-hidden="true" focusable="false">
+    <filter id="od-duotone" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix"
+        values="0.2126 0.7152 0.0722 0 0  0.2126 0.7152 0.0722 0 0  0.2126 0.7152 0.0722 0 0  0 0 0 1 0" />
+      <feComponentTransfer>
+        <feFuncR type="table" tableValues="0.898 0.231 0.118 0.051" />
+        <feFuncG type="table" tableValues="0.918 0.510 0.227 0.180" />
+        <feFuncB type="table" tableValues="0.961 0.965 0.541 0.357" />
+      </feComponentTransfer>
+    </filter>
+  </svg>
+
+  <!-- 2. En-tête : logo de la charte + horloge -->
+  <header class="brand">
+    <img class="brand__icon" src="brand/ouidrop-icon-blue.svg" alt="" />
+    <div class="brand__name">
+      <img class="brand__wordmark" src="brand/ouidrop-wordmark-white.svg" alt="OUIDROP" />
+      <p class="brand__sub"><span class="live-dot"></span>Réseau Dropper · en direct</p>
+    </div>
+    <div class="brand__clock">
+      <p class="brand__time">{{ clock() }}</p>
+      <p class="brand__date">{{ today() }}</p>
+    </div>
+  </header>
+
+  <!-- 3. Volet du dropper affiché -->
+  <div #panel class="panel-wrap" [class.is-open]="isPanelOpen()">
+    <aside class="panel" aria-live="polite">
+      @if (selected(); as d) {
+        <div class="panel__head">
+          <img class="panel__blueprint" src="brand/blueprint-dropper.svg" alt="" />
+
+          <div class="panel__tools">
+            <button type="button" class="tool" (click)="toggleAutoCycle()"
+              [attr.aria-label]="autoCycle() ? 'Mettre le défilement en pause' : 'Reprendre le défilement'">
+              @if (autoCycle()) {
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12M15 6v12" /></svg>
+              } @else {
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" /></svg>
+              }
+            </button>
+            <button type="button" class="tool" (click)="closePanel()" aria-label="Fermer le volet">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" /></svg>
+            </button>
+          </div>
+
+          <p class="panel__eyebrow">{{ d.enseigne }}</p>
+          <h2 class="panel__title">{{ d.site }}</h2>
+          <p class="panel__address">
+            @for (line of d.address.split(', '); track $index) {
+              <span>{{ line }}</span>
+            }
+          </p>
+
+          <div class="panel__chips">
+            @if (d.service === 'en-service') {
+              <span class="chip chip--on"><span class="chip__dot"></span>En service</span>
+              @if (d.inUse) {
+                <span class="chip chip--busy"><span class="chip__ring"></span>En utilisation</span>
+              } @else {
+                <span class="chip chip--idle">Libre</span>
+              }
+            } @else {
+              <span class="chip chip--out"><span class="chip__dot"></span>Hors service</span>
+            }
+          </div>
+
+          <!-- Barre de progression du mode TV.
+               Astuce : on alterne entre deux animations identiques (classe "alt") à chaque
+               nouveau dropper, ce qui oblige le navigateur à relancer l'animation depuis 0. -->
+          @if (autoCycle()) {
+            <div class="panel__progress" [class.alt]="cycleKey() % 2 === 1" [class.is-waiting]="manualPause()"
+              [style.animation-duration.ms]="manualPause() ? manualPauseMs : cycleMs"></div>
+          }
+        </div>
+
+        <div class="panel__body">
+          @if (d.service === 'hors-service') {
+            <div class="alert" role="status">
+              <svg class="alert__icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3.5 22 20.5H2z" /><path d="M12 10v4.5M12 17.2v.3" />
+              </svg>
+              <div>
+                <p class="alert__title">Hors service depuis {{ formatAgo(minutesSince(d.outOfServiceMinutesAgo ?? 0)) }}</p>
+                <p class="alert__text">{{ d.outOfServiceReason }}</p>
+              </div>
+            </div>
+          }
+
+          <!-- Dernière utilisation -->
+          <section class="block">
+            <div class="block__head">
+              <h3 class="label">Dernière utilisation</h3>
+              <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
+                <circle class="i-main" cx="18" cy="20" r="13" />
+                <path class="i-main" d="M18 7v3M18 30v3M5 20h3M28 20h3" />
+                <path class="i-accent" d="M18 12v8h7" />
+                <path class="i-accent i-dots" d="M33 8.5a17 17 0 0 1 0 23" />
+              </svg>
+            </div>
+            <p class="last-use"><span class="last-use__prefix">il y a</span>{{ formatAgo(lastUse()) }}</p>
+            <p class="muted">{{ d.lastUseLabel }} à {{ clockAt(d.lastUseMinutesAgo) }}</p>
+          </section>
+
+          <!-- Occupation des casiers (jauge façon icône « Autonomie » de la charte) -->
+          <section class="block">
+            <div class="block__head">
+              <h3 class="label">Occupation des casiers</h3>
+              <span class="tag" [class.tag--alert]="isFull()">
+                {{ isFull() ? 'Complet' : occupancy().used + ' / ' + occupancy().total }}
+              </span>
+            </div>
+            <div class="lockers">
+              <svg class="gauge" viewBox="0 0 160 160" aria-hidden="true">
+                <circle class="gauge__track" cx="80" cy="80" r="64" />
+                <circle class="gauge__arc" [class.is-full]="isFull()" cx="80" cy="80" r="64"
+                  [attr.stroke-dasharray]="gaugeDash()" transform="rotate(-90 80 80)" />
+                <path class="gauge__ticks" d="M80 22v7M138 80h-7M80 138v-7M22 80h7" />
+                <text class="gauge__value" x="80" y="86">{{ occupancy().percent }}%</text>
+                <text class="gauge__caption" x="80" y="106">occupés</text>
+              </svg>
+              <ul class="zones">
+                @for (zone of d.zones; track zone.label) {
+                  <li class="zone">
+                    <span class="zone__name"><i [class]="'zone__dot zone__dot--' + $index"></i>{{ zone.label }}</span>
+                    <span class="zone__count" [class.is-full]="zone.used === zone.total">{{ zone.used }}/{{ zone.total }}</span>
+                    <span class="zone__cells">
+                      @for (used of cells(zone); track $index) {
+                        <i [class.is-used]="used"></i>
+                      }
+                    </span>
+                  </li>
+                }
+              </ul>
+            </div>
+          </section>
+
+          <!-- Aujourd'hui -->
+          <section class="block">
+            <h3 class="label">Aujourd'hui</h3>
+            <div class="today">
+              <div class="today__item">
+                <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
+                  <path class="i-main i-dash" d="M5 6v28M35 4v9" />
+                  <path class="i-accent" d="M5 32l11-12 8 7 11-12" />
+                  <circle class="i-fill" cx="16" cy="20" r="2.4" /><circle class="i-fill" cx="24" cy="27" r="2.4" />
+                </svg>
+                <p class="today__value">{{ d.ordersToday }}</p>
+                <p class="today__label">Commandes</p>
+              </div>
+              <div class="today__item">
+                <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
+                  <circle class="i-main" cx="18" cy="20" r="13" />
+                  <path class="i-accent" d="M18 12v8h7" />
+                  <path class="i-accent i-dots" d="M33 8.5a17 17 0 0 1 0 23" />
+                </svg>
+                <p class="today__value">{{ d.avgPickup }}</p>
+                <p class="today__label">Retrait moyen</p>
+              </div>
+              <div class="today__item">
+                <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
+                  <circle class="i-main" cx="20" cy="16" r="12" />
+                  <path class="i-accent" d="M14.5 16.5l4 4 7-8" />
+                  <path class="i-accent i-dots" d="M12.5 11a9 9 0 0 1 15 0" />
+                  <path class="i-main" d="M11 32h18M20 32v5" />
+                </svg>
+                <p class="today__value">{{ formatDecimal(d.satisfaction) }}<small>/5</small></p>
+                <p class="today__label">Satisfaction</p>
+              </div>
+            </div>
+          </section>
+
+          <!-- Activité récente -->
+          <section class="block block--last">
+            <h3 class="label">Activité récente</h3>
+            <ol class="timeline">
+              @for (event of d.activity; track event.text + event.minutesAgo) {
+                <li class="timeline__item" [class.is-alert]="event.alert">
+                  <time class="timeline__time">{{ clockAt(event.minutesAgo) }}</time>
+                  <span class="timeline__text">{{ event.text }}</span>
+                </li>
+              }
+            </ol>
+          </section>
+        </div>
+      }
+    </aside>
+  </div>
+
+  <!-- 4. Colonne de droite : chiffres du réseau + fil d'activité -->
+  <section #rail class="rail">
+    <article class="kpi">
+      <div class="kpi__head">
+        <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
+          <path class="i-main i-dash" d="M5 6v28M35 4v9" />
+          <path class="i-accent" d="M5 32l11-12 8 7 11-12" />
+          <circle class="i-fill" cx="16" cy="20" r="2.4" /><circle class="i-fill" cx="24" cy="27" r="2.4" />
+        </svg>
+        <h3 class="kpi__label">Commandes en temps réel</h3>
+      </div>
+      <p class="kpi__value">{{ orderCount() }}</p>
+      <p class="kpi__meta"><span class="live-dot"></span>+{{ ordersLastHour() }} sur la dernière heure</p>
+    </article>
+
+    <article class="kpi">
+      <div class="kpi__head">
+        <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
+          <rect class="i-main" x="4" y="4" width="13" height="13" rx="1.5" />
+          <rect class="i-main" x="23" y="4" width="13" height="13" rx="1.5" />
+          <rect class="i-main" x="4" y="23" width="13" height="13" rx="1.5" />
+          <rect class="i-accent i-dash" x="23" y="23" width="13" height="13" rx="1.5" />
+          <path class="i-accent" d="M17 10.5h6M29.5 17v6M17 29.5h6" />
+        </svg>
+        <h3 class="kpi__label">Droppers en service</h3>
+      </div>
+      <p class="kpi__value">{{ inServiceCount() }}<span class="kpi__of">/{{ droppers().length }}</span></p>
+      <p class="kpi__meta">
+        <span class="dot dot--busy"></span>{{ inUseCount() }} en utilisation
+        @if (outOfServiceCount() > 0) {
+          <span class="kpi__sep"></span><span class="dot dot--out"></span>{{ outOfServiceCount() }} hors service
+        }
+      </p>
+    </article>
+
+    <article class="kpi">
+      <div class="kpi__head">
+        <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
+          <circle class="i-main" cx="20" cy="16" r="12" />
+          <path class="i-accent" d="M14.5 16.5l4 4 7-8" />
+          <path class="i-accent i-dots" d="M12.5 11a9 9 0 0 1 15 0" />
+          <path class="i-main" d="M11 32h18M20 32v5" />
+        </svg>
+        <h3 class="kpi__label">Note moyenne clients</h3>
+      </div>
+      <p class="kpi__value">{{ ratingLabel() }}<span class="kpi__of">/5</span></p>
+      <p class="kpi__meta">Sur les 30 derniers jours</p>
+    </article>
+
+    <article class="feed">
+      <h3 class="feed__title">Activité du réseau</h3>
+      <ol class="feed__list">
+        @for (item of feed(); track item.key) {
+          <li class="feed__item" [class.is-alert]="item.alert">
+            <time class="feed__time">{{ item.time }}</time>
+            <div>
+              <p class="feed__site">{{ item.site }}</p>
+              <p class="feed__text">{{ item.text }}</p>
+            </div>
+          </li>
+        }
+      </ol>
+    </article>
+  </section>
+
+  <!-- 5. Légende des pins -->
+  <footer class="legend">
+    <span class="legend__item">
+      <svg class="legend__pin" viewBox="0 0 100 100" aria-hidden="true"><path [attr.d]="anglePath" /></svg>En service
+    </span>
+    <span class="legend__item">
+      <svg class="legend__pin legend__pin--busy" viewBox="-40 -40 180 180" aria-hidden="true">
+        <circle cx="50" cy="50" r="84" /><path [attr.d]="anglePath" />
+      </svg>En utilisation
+    </span>
+    <span class="legend__item">
+      <svg class="legend__pin legend__pin--out" viewBox="0 0 100 100" aria-hidden="true"><path [attr.d]="anglePath" /></svg>Hors service
+    </span>
+    <span class="legend__note">Statuts, casiers et activité : données d'exemple</span>
+  </footer>
+</div>
