@@ -3,6 +3,7 @@ import {
 } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import * as L from 'leaflet';
+import 'leaflet.markercluster';
 import { DropperDetails, DropperZone } from '../dropper';
 import { Droppers } from '../droppers';
 import { toDetails } from '../dropper-extras';
@@ -13,6 +14,8 @@ import { environment } from '../../environments/environment';
 const FRANCE_BOUNDS = L.latLngBounds([42.33, -4.8], [51.09, 8.23]);
 /** À partir de ce niveau de zoom, on affiche le vrai fond MapTiler (rues, villes…). */
 const DETAIL_ZOOM = 8;
+/** À partir de ce niveau de zoom, chaque dropper a son propre pin (plus de regroupement). */
+const CLUSTER_MAX_ZOOM = 11;
 /** Style MapTiler utilisé quand on zoome (celui que tu as déjà configuré). */
 const MAPTILER_STYLE = 'streets-v2';
 /** Mode TV : durée d'affichage de chaque dropper dans le volet. */
@@ -114,6 +117,9 @@ export class DropperList implements AfterViewInit, OnDestroy {
   // ---------- Leaflet ----------
   private map!: L.Map;
   private markers = new Map<string, L.Marker>();
+  private markerData = new Map<L.Marker, DropperDetails>();
+  // Regroupe les pins proches en un seul pin "nombre" tant qu'on n'est pas assez zoomé.
+  private clusterGroup!: L.MarkerClusterGroup;
   // Trait de rappel entre le volet et le pin affiché (façon cote de plan technique)
   private leaderLine!: L.Polyline;
   private leaderStart!: L.CircleMarker;
@@ -136,9 +142,14 @@ export class DropperList implements AfterViewInit, OnDestroy {
       const current = this.selected();
       const open = this.isPanelOpen();
       this.markers.forEach((marker, nom) => {
+        // Si le pin est actuellement regroupé (invisible en tant que tel), on ne le
+        // met pas en avant lui-même : c'est le pin de regroupement qui le représente.
+        const isVisible = this.clusterGroup?.getVisibleParent(marker) === marker;
         const isCurrent = open && current?.nom === nom;
-        marker.getElement()?.classList.toggle('is-selected', isCurrent);
-        marker.setZIndexOffset(isCurrent ? 1000 : 0);
+        if (isVisible) {
+          marker.getElement()?.classList.toggle('is-selected', isCurrent);
+          marker.setZIndexOffset(isCurrent ? 1000 : 0);
+        }
       });
       this.updateLeader();
     });
@@ -158,6 +169,19 @@ export class DropperList implements AfterViewInit, OnDestroy {
     });
     L.control.attribution({ prefix: false }).addTo(this.map);
     this.fitFrance();
+
+    // Regroupement des pins : tant qu'on n'est pas zoomé sur une zone précise, les
+    // droppers proches (même ville, même quartier) sont fusionnés en un seul pin
+    // qui affiche leur nombre. Au-delà de CLUSTER_MAX_ZOOM, chaque dropper reprend
+    // son pin individuel habituel.
+    this.clusterGroup = L.markerClusterGroup({
+      maxClusterRadius: 60,
+      disableClusteringAtZoom: CLUSTER_MAX_ZOOM,
+      spiderfyOnMaxZoom: false,
+      showCoverageOnHover: false,
+      zoomToBoundsOnClick: true,
+      iconCreateFunction: cluster => this.clusterIcon(cluster),
+    });
 
     // Calque dédié au trait de rappel : entre le fond de carte (400) et les pins (600),
     // pour que le trait passe SOUS les pins et leurs noms.
@@ -181,10 +205,12 @@ export class DropperList implements AfterViewInit, OnDestroy {
       const details = data.map(toDetails);
       details.forEach((d, index) => {
         const marker = L.marker([d.latitude, d.longitude], { icon: this.pinIcon(d), keyboard: false })
-          .addTo(this.map)
           .on('click', () => this.select(index, true));
         this.markers.set(d.nom, marker);
+        this.markerData.set(marker, d);
+        this.clusterGroup.addLayer(marker);
       });
+      this.clusterGroup.addTo(this.map);
       this.droppers.set(details);
       this.select(0);
     });
@@ -342,6 +368,33 @@ export class DropperList implements AfterViewInit, OnDestroy {
   }
 
   /**
+   * Le pin de regroupement : même silhouette "angle Dropper" que les pins normaux,
+   * mais avec le nombre de droppers du groupe à la place du "O".
+   * Passe au rouge si au moins un dropper du groupe est hors service, et pulse si
+   * au moins un est en cours d'utilisation — pour ne rien manquer même dézoomé.
+   */
+  private clusterIcon(cluster: L.MarkerCluster): L.DivIcon {
+    const members = cluster.getAllChildMarkers()
+      .map(m => this.markerData.get(m))
+      .filter((d): d is DropperDetails => !!d);
+    const anyOut = members.some(d => d.service === 'hors-service');
+    const anyBusy = members.some(d => d.service === 'en-service' && d.inUse);
+    const state = ['pin', 'pin--cluster', anyOut ? 'is-out' : 'is-on', anyBusy ? 'is-busy' : ''].join(' ');
+    return L.divIcon({
+      className: state,
+      iconSize: [38, 52],
+      iconAnchor: [19, 52],
+      html: `
+        <span class="pin__pulse"></span>
+        <svg class="pin__badge" viewBox="0 0 100 100" aria-hidden="true">
+          <path class="pin__shape" d="${ANGLE_DROPPER_PATH}"/>
+          <text class="pin__count" x="52" y="56" text-anchor="middle" dominant-baseline="central">${cluster.getChildCount()}</text>
+        </svg>
+        <span class="pin__stem"></span>`,
+    });
+  }
+
+  /**
    * Relie le bord du volet au pin affiché.
    * Le départ est un point fixe de l'ÉCRAN (le bord du volet) : on le convertit en
    * coordonnées GPS à chaque mouvement de carte pour que le trait suive.
@@ -355,8 +408,13 @@ export class DropperList implements AfterViewInit, OnDestroy {
       this.leaderEnd.remove();
       return;
     }
+    // Si le pin du dropper sélectionné est regroupé, le trait pointe vers le pin
+    // de regroupement qui le représente actuellement à l'écran.
+    const marker = this.markers.get(current.nom);
+    const target = (marker && this.clusterGroup?.getVisibleParent(marker)) || marker;
+    if (!target) return;
     const panel = this.panel.nativeElement;
-    const pin = this.map.latLngToContainerPoint([current.latitude, current.longitude]);
+    const pin = this.map.latLngToContainerPoint(target.getLatLng());
     const start = this.map.containerPointToLatLng([panel.offsetLeft + panel.offsetWidth, panel.offsetTop + 100]);
     const end = this.map.containerPointToLatLng([pin.x - 30, pin.y - 33]); // juste à gauche du pin
     this.leaderLine.setLatLngs([start, end]);
