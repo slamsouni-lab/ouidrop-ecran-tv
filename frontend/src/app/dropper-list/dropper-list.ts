@@ -2,11 +2,18 @@ import {
   AfterViewInit, Component, ElementRef, HostListener, OnDestroy, ViewChild, computed, effect, signal,
 } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import * as L from 'leaflet';
+import { combineLatest } from 'rxjs';
+// ⚠️ On importe `L` depuis '../leaflet-global', jamais directement depuis
+// 'leaflet' : c'est ce module qui expose `L` sur `window` pour le plugin
+// "leaflet.markercluster" (voir son commentaire), et il faut réutiliser
+// EXACTEMENT le même objet `L`, pas un second objet d'interop équivalent
+// mais distinct (voir l'explication détaillée dans leaflet-global.ts).
+import { L } from '../leaflet-global';
 import 'leaflet.markercluster';
 import { DropperDetails, DropperZone } from '../dropper';
 import { Droppers } from '../droppers';
 import { toDetails } from '../dropper-extras';
+import { DropperExtrasService } from '../dropper-extras.service';
 import { ANGLE_DROPPER_PATH, O_ICON_PATH } from '../brand-shapes';
 import { environment } from '../../environments/environment';
 
@@ -135,7 +142,11 @@ export class DropperList implements AfterViewInit, OnDestroy {
   private clockTimer?: ReturnType<typeof setInterval>;
   private cycleTimer?: ReturnType<typeof setTimeout>;
 
-  constructor(private droppersService: Droppers, private http: HttpClient) {
+  constructor(
+    private droppersService: Droppers,
+    private extrasService: DropperExtrasService,
+    private http: HttpClient,
+  ) {
     // Dès que le dropper affiché (ou l'ouverture du volet) change :
     // on met à jour le pin mis en avant et le trait de rappel.
     effect(() => {
@@ -200,9 +211,11 @@ export class DropperList implements AfterViewInit, OnDestroy {
     });
     this.addCities();
 
-    // Les droppers (API) + leurs infos d'exploitation (fictives pour l'instant)
-    this.droppersService.getDroppers().subscribe(data => {
-      const details = data.map(toDetails);
+    // Les droppers (API) + leurs infos d'exploitation (mock pour l'instant,
+    // Sauron demain — voir DropperExtrasService). Les deux appels partent en
+    // parallèle et on attend les deux avant d'afficher quoi que ce soit.
+    combineLatest([this.droppersService.getDroppers(), this.extrasService.getExtras()]).subscribe(([data, extras]) => {
+      const details = data.map(d => toDetails(d, extras));
       details.forEach((d, index) => {
         const marker = L.marker([d.latitude, d.longitude], { icon: this.pinIcon(d), keyboard: false })
           .on('click', () => this.select(index, true));
