@@ -23,6 +23,12 @@ declare module 'leaflet' {
   interface MarkerClusterGroup extends L.FeatureGroup {
     addLayer(layer: L.Layer): this;
     getVisibleParent(marker: L.Marker): L.Marker | null;
+    /**
+     * Redessine les pins de regroupement. Nécessaire quand l'état d'un
+     * dropper change (panne, retour à la normale) : sans ça, le pin du
+     * groupe garderait la couleur calculée au moment où il a été créé.
+     */
+    refreshClusters(layers?: L.Layer | L.Layer[] | L.LayerGroup): this;
   }
 
   function markerClusterGroup(options?: MarkerClusterGroupOptions): MarkerClusterGroup;

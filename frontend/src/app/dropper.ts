@@ -1,18 +1,46 @@
-/** Ce que renvoie l'API Symfony (GET /api/droppers). */
+/**
+ * Ce que renvoie l'API Symfony (GET /api/droppers).
+ *
+ * `id` et `address` sont facultatifs côté écran : ils existent dans la
+ * réponse Sauron comme dans le parc d'exemple actuel, mais l'écran sait
+ * fonctionner sans (il retombe alors sur l'adresse de la fiche
+ * d'exploitation).
+ */
 export interface Dropper {
+  id?: string;
   nom: string;
   latitude: number;
   longitude: number;
+  address?: string;
+  /** Le client / enseigne propriétaire (ex. "Parisnordis"). Vient de la base. */
+  enseigne?: string;
+  /** La ville du dropper. Vient de la base. */
+  ville?: string;
+  /** Date de mise en service (ISO 8601). Vient de la base. */
+  misEnServiceLe?: string;
 }
 
-/** Statut de service d'un Dropper. */
-export type ServiceStatus = 'en-service' | 'hors-service';
+/**
+ * L'état d'un Dropper, tel qu'il colore le pin et pilote la liste des pannes.
+ * C'est un état de la MACHINE ENTIÈRE, pas un décompte de casiers :
+ *   'ok'      → tout fonctionne              → pin bleu, fixe
+ *   'partiel' → dropper partiellement bloqué → pin orange, clignotant
+ *   'hs'      → dropper entièrement bloqué   → pin rouge, clignotant
+ *
+ * C'est la seule notion de couleur/gravité de l'écran : pins, pastilles de la
+ * liste des pannes et pastilles du volet s'en servent toutes.
+ *
+ * ⚠️ La vraie source de cet état viendra du monitoring (piste Grafana / base) :
+ * un dropper "partiellement" ou "entièrement" bloqué. En attendant, il est
+ * simulé (voir dropper-extras.ts et dropper-extras.service.ts).
+ */
+export type DropperHealth = 'ok' | 'partiel' | 'hs';
 
 /** Une zone de température du Dropper (il est tri-température : sec, frais, surgelé). */
 export interface DropperZone {
   label: 'Sec' | 'Frais' | 'Surgelé';
-  used: number;  // casiers occupés dans cette zone
-  total: number; // casiers au total dans cette zone
+  used: number;    // casiers occupés par une commande
+  total: number;   // casiers au total dans cette zone
 }
 
 /** Un événement de l'historique d'un Dropper. */
@@ -24,16 +52,20 @@ export interface DropperActivity {
 
 /**
  * Infos d'exploitation d'un Dropper.
- * FICTIVES pour l'instant (voir dropper-extras.ts) : l'API ne les fournit pas encore.
+ * FICTIVES pour l'instant (voir dropper-extras.service.ts) : l'API ne les
+ * fournit pas encore.
  */
 export interface DropperExtras {
   address: string;
-  service: ServiceStatus;
+  /** État de la machine : ok / partiellement bloqué / entièrement bloqué. */
+  status: DropperHealth;
+  /** Depuis combien de temps le dropper est bloqué (si status ≠ 'ok'). */
+  statusSinceMinutesAgo?: number;
+  /** Pourquoi il est bloqué (si status ≠ 'ok'). */
+  statusReason?: string;
   inUse: boolean;                  // quelqu'un est en train de l'utiliser en ce moment
   lastUseMinutesAgo: number;       // dernière utilisation, en minutes
   lastUseLabel: string;            // ce qui s'est passé à ce moment-là
-  outOfServiceMinutesAgo?: number; // seulement si hors service : depuis combien de temps
-  outOfServiceReason?: string;     // seulement si hors service : pourquoi
   zones: DropperZone[];
   ordersToday: number;
   avgPickup: string;               // temps de retrait moyen

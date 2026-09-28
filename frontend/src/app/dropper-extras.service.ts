@@ -1,6 +1,6 @@
 import { Injectable, NgZone } from '@angular/core';
-import { BehaviorSubject, EMPTY, merge, Observable, of } from 'rxjs';
-import { scan } from 'rxjs/operators';
+import { BehaviorSubject, EMPTY, interval, merge, Observable, of } from 'rxjs';
+import { map, scan } from 'rxjs/operators';
 import { DropperExtras } from './dropper';
 import { environment } from '../environments/environment';
 
@@ -33,6 +33,20 @@ import { environment } from '../environments/environment';
 // `getExtras()`), ni `toDetails()` dans dropper-extras.ts (qui ne connaît
 // que la forme `DropperExtras`, jamais d'où elle vient ni à quel rythme).
 // ---------------------------------------------------------------------------
+
+/**
+ * DÉMONSTRATION UNIQUEMENT — à passer à `false` (ou à supprimer avec
+ * `demoUpdates()` plus bas) dès que Mercure enverra de vraies mises à jour.
+ *
+ * Tant que les données sont fictives, aucune panne n'apparaît jamais en cours
+ * de route : la liste des pannes et le son d'alerte ne se déclencheraient donc
+ * jamais à l'écran. Ce scénario fait tomber puis revenir un dropper en boucle
+ * pour pouvoir les montrer.
+ */
+const DEMO_PANNES = true;
+/** Durée de chaque étape du scénario de démonstration. */
+const DEMO_STEP_MS = 45_000;
+
 @Injectable({ providedIn: 'root' })
 export class DropperExtrasService {
   /**
@@ -46,7 +60,7 @@ export class DropperExtrasService {
   constructor(private zone: NgZone) {}
 
   getExtras(): Observable<Record<string, DropperExtras>> {
-    return merge(of(MOCK_EXTRAS), this.mercureUpdates()).pipe(
+    return merge(of(MOCK_EXTRAS), this.mercureUpdates(), this.demoUpdates()).pipe(
       // Fusionne chaque instantané/patch reçu dans le dernier connu, plutôt
       // que de l'écraser : un message Mercure partiel ne fait pas disparaître
       // les Droppers qu'il ne mentionne pas.
@@ -89,12 +103,25 @@ export class DropperExtrasService {
       return () => source.close();
     });
   }
+
+  /**
+   * Scénario de démonstration (voir DEMO_PANNES) : Vougy tombe en panne
+   * partielle, puis complète, puis se rétablit — en boucle. Émet exactement
+   * la même forme de patch que Mercure, donc le reste de l'écran ne fait
+   * aucune différence entre les deux.
+   */
+  private demoUpdates(): Observable<Record<string, DropperExtras>> {
+    if (!DEMO_PANNES || environment.mercureHubUrl) return EMPTY;
+    return interval(DEMO_STEP_MS).pipe(map(step => DEMO_STEPS[step % DEMO_STEPS.length]));
+  }
 }
 
+const VOUGY = 'U Marignier (Vougy)';
+
 const MOCK_EXTRAS: Record<string, DropperExtras> = {
-  'Drive Piéton Intermarché (Saint-Jean-de-Luz)': {
-    address: '12 Avenue de la Concorde, 64500 Saint-Jean-de-Luz',
-    service: 'en-service',
+  'Intermarché Saint-Pée-sur-Nivelle (Saint-Jean-de-Luz)': {
+    address: '24 Boulevard Thiers, 64500 Saint-Jean-de-Luz',
+    status: 'ok',
     inUse: false,
     lastUseMinutesAgo: 12,
     lastUseLabel: 'Retrait client',
@@ -113,9 +140,9 @@ const MOCK_EXTRAS: Record<string, DropperExtras> = {
       { minutesAgo: 104, text: 'Retrait client' },
     ],
   },
-  'Drive Piéton E.Leclerc (Bordeaux Chartrons)': {
-    address: '8 Quai des Chartrons, 33000 Bordeaux',
-    service: 'en-service',
+  'Leclerc Bordeaux (Chartrons)': {
+    address: '38 Quai des Chartrons, 33000 Bordeaux',
+    status: 'ok',
     inUse: true,
     lastUseMinutesAgo: 1,
     lastUseLabel: 'Retrait client',
@@ -134,35 +161,40 @@ const MOCK_EXTRAS: Record<string, DropperExtras> = {
       { minutesAgo: 33, text: 'Retrait client' },
     ],
   },
-  'Point Relais E.Leclerc (Paris Ordener)': {
-    address: '45 Rue Ordener, 75018 Paris',
-    service: 'en-service',
+  // Dropper PARTIELLEMENT bloqué → pin orange clignotant, ligne orange dans la
+  // liste des pannes.
+  'Leclerc Parinordis (Ordener)': {
+    address: '162 Rue Ordener, 75018 Paris',
+    status: 'partiel',
+    statusSinceMinutesAgo: 26,
+    statusReason: 'Une colonne de casiers Frais est neutralisée. Le reste du dropper fonctionne.',
     inUse: true,
     lastUseMinutesAgo: 2,
     lastUseLabel: 'Retrait client',
     zones: [
-      { label: 'Sec', used: 10, total: 10 },
-      { label: 'Frais', used: 8, total: 8 },
-      { label: 'Surgelé', used: 6, total: 6 },
+      { label: 'Sec', used: 9, total: 10 },
+      { label: 'Frais', used: 6, total: 8 },
+      { label: 'Surgelé', used: 5, total: 6 },
     ],
     ordersToday: 76,
     avgPickup: '34 s',
     satisfaction: 4.5,
     activity: [
-      { minutesAgo: 2, text: 'Casiers pleins — réappro demandé', alert: true },
+      { minutesAgo: 26, text: 'Dropper partiellement bloqué', alert: true },
       { minutesAgo: 9, text: 'Retrait client' },
       { minutesAgo: 25, text: 'Dépôt livreur — 12 commandes' },
       { minutesAgo: 31, text: 'Retrait client' },
     ],
   },
-  'Hyper U (Pontarlier)': {
-    address: '3 Rue de la République, 25300 Pontarlier',
-    service: 'hors-service',
+  // Dropper ENTIÈREMENT bloqué → pin rouge clignotant.
+  'U Pontarlier (Pontarlier)': {
+    address: '1 Rue de Besançon, 25300 Doubs',
+    status: 'hs',
+    statusSinceMinutesAgo: 72,
+    statusReason: 'Capteur de porte en défaut. Intervention technique planifiée.',
     inUse: false,
     lastUseMinutesAgo: 86,
     lastUseLabel: 'Retrait client',
-    outOfServiceMinutesAgo: 72,
-    outOfServiceReason: 'Capteur de porte en défaut. Intervention technique planifiée.',
     zones: [
       { label: 'Sec', used: 4, total: 8 },
       { label: 'Frais', used: 3, total: 7 },
@@ -172,15 +204,15 @@ const MOCK_EXTRAS: Record<string, DropperExtras> = {
     avgPickup: '31 s',
     satisfaction: 4.9,
     activity: [
-      { minutesAgo: 72, text: 'Mise hors service — capteur de porte', alert: true },
+      { minutesAgo: 72, text: 'Dropper entièrement bloqué', alert: true },
       { minutesAgo: 86, text: 'Retrait client' },
       { minutesAgo: 150, text: 'Dépôt livreur — 4 commandes' },
       { minutesAgo: 188, text: 'Retrait client' },
     ],
   },
-  'Super U (Marignier)': {
-    address: '17 Rue des Alpes, 74970 Marignier',
-    service: 'en-service',
+  [VOUGY]: {
+    address: '1576 Route du Mont Blanc, 74130 Vougy',
+    status: 'ok',
     inUse: false,
     lastUseMinutesAgo: 18,
     lastUseLabel: 'Retrait client',
@@ -199,9 +231,9 @@ const MOCK_EXTRAS: Record<string, DropperExtras> = {
       { minutesAgo: 195, text: 'Maintenance préventive effectuée' },
     ],
   },
-  'Drive E.Leclerc (Sourdeval / Vire)': {
-    address: '2 Place du Marché, 50150 Sourdeval',
-    service: 'en-service',
+  'Leclerc Vire (Sourdeval)': {
+    address: '11 Avenue Bernardin le Neuf, 50150 Sourdeval',
+    status: 'ok',
     inUse: false,
     lastUseMinutesAgo: 62,
     lastUseLabel: 'Retrait client',
@@ -221,3 +253,30 @@ const MOCK_EXTRAS: Record<string, DropperExtras> = {
     ],
   },
 };
+
+/** Les trois étapes du scénario de démonstration, jouées en boucle (voir DEMO_PANNES). */
+const DEMO_STEPS: Record<string, DropperExtras>[] = [
+  // 1. Le dropper passe partiellement bloqué.
+  {
+    [VOUGY]: {
+      ...MOCK_EXTRAS[VOUGY],
+      status: 'partiel',
+      statusSinceMinutesAgo: 0,
+      statusReason: 'Une rangée de casiers est bloquée. Diagnostic en cours.',
+      activity: [{ minutesAgo: 0, text: 'Dropper partiellement bloqué', alert: true }, ...MOCK_EXTRAS[VOUGY].activity],
+    },
+  },
+  // 2. La panne s'étend : dropper entièrement bloqué.
+  {
+    [VOUGY]: {
+      ...MOCK_EXTRAS[VOUGY],
+      status: 'hs',
+      inUse: false,
+      statusSinceMinutesAgo: 0,
+      statusReason: 'Arrêt automatique après blocage répété. Intervention technique demandée.',
+      activity: [{ minutesAgo: 0, text: 'Dropper entièrement bloqué', alert: true }, ...MOCK_EXTRAS[VOUGY].activity],
+    },
+  },
+  // 3. Retour à la normale.
+  { [VOUGY]: MOCK_EXTRAS[VOUGY] },
+];

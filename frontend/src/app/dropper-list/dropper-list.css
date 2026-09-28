@@ -26,6 +26,35 @@
   height: 0;
 }
 
+/* ---------- MODE TV : agrandissement proportionnel ----------
+
+   Tout ce qui est posé par-dessus la carte vit dans ce calque. Il est
+   toujours dessiné aux dimensions de référence (1920 × 1080 : voir
+   DESIGN_WIDTH dans dropper-list.ts), puis agrandi d'un bloc par `zoom`.
+   Conséquence : sur une télé 4K, rien n'est repositionné ni recalculé, tout
+   est simplement deux fois plus grand — les proportions, les marges et les
+   tailles de texte restent exactement celles validées sur un écran normal.
+
+   `zoom` (et non `transform: scale`) parce qu'il refait la mise en page à la
+   taille finale : le texte reste net, alors qu'une mise à l'échelle par
+   transformation l'aurait rendu flou sur un grand écran.
+
+   La taille est donnée en vw/vh divisés par le zoom : `zoom` multiplie les
+   longueurs (y compris les unités d'écran) mais PAS les pourcentages, donc
+   `calc(100vw / 2)` avec `zoom: 2` redonne bien la largeur exacte de l'écran,
+   là où un `calc(100% / 2)` laisserait le calque à moitié trop petit. */
+.tv__ui {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(100vw / var(--ui-zoom, 1));
+  height: calc(100vh / var(--ui-zoom, 1));
+  zoom: var(--ui-zoom, 1);
+  z-index: 5;
+  pointer-events: none; /* la carte reste manipulable entre les panneaux */
+}
+.tv__ui > * { pointer-events: auto; }
+
 /* ---------- En-tête ---------- */
 
 .brand {
@@ -87,6 +116,37 @@
   animation: live-error 1.8s ease-out infinite;
 }
 
+/* Bouton d'alerte sonore : discret dans l'en-tête, mais toujours visible —
+   c'est lui qui, d'un clic, donne au navigateur le feu vert pour jouer du
+   son (sans geste de l'utilisateur, il le refuse silencieusement). */
+.sound {
+  width: 40px;
+  height: 40px;
+  margin-left: 4px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(229, 234, 245, 0.22);
+  border-radius: 50%;
+  background: rgba(13, 46, 91, 0.6);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+.sound:hover { background: var(--od-intense); border-color: rgba(229, 234, 245, 0.45); }
+.sound:focus-visible { outline: 2px solid var(--od-vif); outline-offset: 2px; }
+.sound.is-off { color: rgba(229, 234, 245, 0.45); }
+.sound svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.sound:not(.is-off) .sound__waves { stroke: var(--od-vif); }
+
 /* Popup de panne — une fois par épisode, fermable, au-dessus de tout le
    reste (même le volet). Carte claire comme le volet, pour rester lisible
    posée sur la carte, avec le même vocabulaire visuel que .alert. */
@@ -100,7 +160,9 @@
   align-items: flex-start;
   gap: 14px;
   width: 440px;
-  max-width: calc(100vw - 72px);
+  /* en % et non en vw : à l'intérieur du calque agrandi, les unités vw
+     désignent encore l'écran réel et donneraient une largeur fausse. */
+  max-width: calc(100% - 72px);
   padding: 16px 18px;
   background: #fff;
   border-radius: 2px;
@@ -237,6 +299,25 @@
 }
 .panel__address span { display: block; }
 
+/* Ligne d'infos réelles (référence base + mise en service) : discrète. */
+.panel__ref {
+  margin: 10px 0 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font: 500 12px/1.3 var(--font-title);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(229, 234, 245, 0.5);
+}
+.panel__ref-sep {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: rgba(229, 234, 245, 0.4);
+}
+
 .panel__chips {
   margin-top: 18px;
   display: flex;
@@ -259,6 +340,9 @@
 .chip--busy { background: var(--od-vif); color: #fff; }
 .chip--idle { background: rgba(229, 234, 245, 0.1); color: rgba(229, 234, 245, 0.85); }
 .chip--out { background: var(--od-rouge); color: #fff; }
+/* Blocage partiel : même orange que le pin correspondant sur la carte. */
+.chip--warn { background: var(--od-orange); color: #2A1A02; }
+.chip--warn .chip__dot { background: #2A1A02; }
 .chip__ring {
   position: relative;
   width: 8px;
@@ -293,12 +377,23 @@
 .panel__body {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  /* Scroll seulement si le contenu déborde en bas ; sinon, pas de barre. */
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 20px 30px 20px 34px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  /* Barre de défilement fine, discrète, aux couleurs de la charte. */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(13, 46, 91, 0.35) transparent;
 }
+.panel__body::-webkit-scrollbar { width: 8px; }
+.panel__body::-webkit-scrollbar-thumb {
+  background: rgba(13, 46, 91, 0.28);
+  border-radius: 999px;
+}
+.panel__body::-webkit-scrollbar-thumb:hover { background: rgba(13, 46, 91, 0.45); }
 
 .block {
   display: flex;
@@ -431,6 +526,17 @@
   background: var(--od-clair);
 }
 .zone__cells i.is-used { background: var(--od-vif); }
+/* Casier bloqué : barré en orange, pour qu'on voie d'un coup d'œil qu'il ne
+   s'agit pas d'une place libre mais d'un casier hors d'usage. */
+.zone__cells i.is-blocked {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--od-orange) 0 2px,
+    #ffd9a1 2px 4px
+  );
+  box-shadow: inset 0 0 0 1px var(--od-orange-deep);
+}
+.zone.is-blocked .zone__name { color: var(--od-orange-deep); }
 
 /* Aujourd'hui */
 .today {
@@ -468,9 +574,6 @@
   padding: 0 0 9px 18px;
 }
 .timeline__item:last-child { padding-bottom: 0; }
-/* Quand l'alerte « hors service » prend de la place, on n'affiche que 3 événements */
-.alert ~ .block--last .timeline__item:nth-child(n + 4) { display: none; }
-.alert ~ .block--last .timeline__item:nth-child(3)::after { display: none; }
 .timeline__item::before {
   content: '';
   position: absolute;
@@ -497,6 +600,8 @@
   font-variant-numeric: tabular-nums;
 }
 .timeline__item.is-alert .timeline__time { color: var(--od-rouge); }
+.timeline__item.is-warn::before { background: var(--od-orange); }
+.timeline__item.is-warn .timeline__time { color: var(--od-orange-deep); }
 .timeline__text { font: 400 14px/1.35 var(--font-text); }
 
 /* Alerte hors service (rouge signal = point d'attention, comme le prévoit la charte) */
@@ -524,6 +629,12 @@
   color: var(--od-rouge);
 }
 .alert__text { margin: 4px 0 0; font: 400 14px/1.4 var(--font-text); }
+
+/* Blocage partiel : même encart, en orange — la machine tourne toujours, ce
+   n'est pas le même niveau d'alerte qu'un dropper complètement arrêté. */
+.alert--warn { background: rgba(255, 159, 28, 0.14); }
+.alert--warn .alert__icon { stroke: var(--od-orange-deep); }
+.alert--warn .alert__title { color: var(--od-orange-deep); }
 
 /* ---------- Icônes (style de la charte : trait bleu foncé + accents bleu vif) ---------- */
 
@@ -559,7 +670,7 @@
 }
 
 .kpi,
-.feed {
+.pannes {
   position: relative;
   padding: 20px 22px;
   background: rgba(13, 46, 91, 0.92);
@@ -569,7 +680,7 @@
   box-shadow: inset 0 1px 0 rgba(229, 234, 245, 0.08);
 }
 .kpi .icon,
-.feed .icon {
+.pannes .icon {
   --ic-main: rgba(229, 234, 245, 0.9);
   --ic-accent: var(--od-vif);
 }
@@ -614,60 +725,209 @@
 }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .dot--busy { background: var(--od-vif); }
+.dot--warn { background: var(--od-orange); }
 .dot--out { background: var(--od-rouge); }
 
-.feed {
+/* ---------- Pannes en cours ----------
+
+   Ce bloc ne liste QUE les problèmes : heure de début, pastille de la même
+   couleur que le pin du dropper concerné (et qui clignote au même rythme),
+   nom du site, et un clic qui ouvre son volet de détail. */
+
+.pannes {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-.feed__title {
+.pannes__title {
+  flex: none;
   margin: 0 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font: 600 15px/1 var(--font-title);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: rgba(229, 234, 245, 0.78);
 }
-.feed__list {
+.pannes__count {
+  min-width: 22px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--od-orange);
+  color: #2A1A02;
+  font: 800 13px/1 var(--font-title);
+  letter-spacing: 0;
+  text-align: center;
+}
+.pannes__count.is-hs { background: var(--od-rouge); color: #fff; }
+.pannes__list {
   margin: 0;
   padding: 0;
   list-style: none;
+  /* Toutes les pannes sont accessibles : la liste défile si elle est plus
+     longue que la place disponible dans la colonne. */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(229, 234, 245, 0.4) transparent;
 }
-.feed__item {
+.pannes__list::-webkit-scrollbar { width: 8px; }
+.pannes__list::-webkit-scrollbar-thumb {
+  background: rgba(229, 234, 245, 0.28);
+  border-radius: 999px;
+}
+.pannes__list::-webkit-scrollbar-thumb:hover { background: rgba(229, 234, 245, 0.5); }
+
+/* Chaque panne est un vrai bouton : cliquable à la souris comme au clavier. */
+.panne {
+  width: 100%;
   display: grid;
-  grid-template-columns: 48px 1fr;
-  gap: 10px;
-  padding: 12px 0;
+  grid-template-columns: 14px 1fr;
+  gap: 11px;
+  padding: 12px 6px 12px 0;
+  border: 0;
   border-bottom: 1px solid rgba(229, 234, 245, 0.08);
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
   animation: fade-in 0.5s ease both;
+  transition: background 0.2s ease;
 }
-.feed__time {
+.panne:hover { background: rgba(229, 234, 245, 0.07); }
+.panne:focus-visible { outline: 2px solid var(--od-vif); outline-offset: -2px; }
+.panne__dot {
+  width: 12px;
+  height: 12px;
+  margin-top: 3px;
+  border-radius: 50%;
+  background: var(--od-orange);
+  box-shadow: 0 0 10px rgba(255, 159, 28, 0.9);
+  animation: dot-blink-warn 1.6s ease-in-out infinite;
+}
+.panne.is-hs .panne__dot {
+  background: var(--od-rouge);
+  box-shadow: 0 0 10px rgba(226, 36, 36, 0.9);
+  animation: dot-blink-out 1.3s ease-in-out infinite;
+}
+.panne__body { min-width: 0; display: block; }
+.panne__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.panne__time {
   font: 700 17px/1.15 var(--font-title);
-  color: var(--od-vif);
+  color: var(--od-orange);
   font-variant-numeric: tabular-nums;
 }
-.feed__site {
-  margin: 0;
+.panne.is-hs .panne__time { color: #ff6a6a; }
+.panne__since {
+  font: 400 12px/1.2 var(--font-text);
+  color: rgba(229, 234, 245, 0.55);
+}
+.panne__site {
+  display: block;
+  margin-top: 2px;
   font: 600 17px/1.15 var(--font-title);
   letter-spacing: 0.02em;
 }
-.feed__text {
-  margin: 2px 0 0;
+.panne__text {
+  display: block;
+  margin-top: 2px;
   font: 400 13px/1.35 var(--font-text);
   color: rgba(229, 234, 245, 0.72);
 }
-.feed__item.is-alert .feed__time { color: #ff6a6a; }
-.feed__item.is-alert .feed__site::after {
-  content: '';
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-left: 8px;
+
+/* Aucune panne : on le dit clairement, plutôt que de laisser un vide qui
+   ressemblerait à un écran cassé. */
+.pannes__empty {
+  margin: 10px 0 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  font: 400 14px/1.4 var(--font-text);
+  color: rgba(229, 234, 245, 0.72);
+}
+.pannes__empty-dot {
+  width: 12px;
+  height: 12px;
+  margin-top: 3px;
+  flex: none;
   border-radius: 50%;
-  background: var(--od-rouge);
-  vertical-align: middle;
+  background: var(--od-vif);
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.8);
+}
+
+/* Volet d'une région sans dropper */
+.panel__empty {
+  padding: 34px 34px 36px;
+  background: var(--od-navy);
+  color: #fff;
+}
+.panel__empty-text {
+  margin: 10px 0 22px;
+  font: 400 15px/1.45 var(--font-text);
+  color: rgba(229, 234, 245, 0.75);
+}
+
+/* ---------- Sélecteur de vue (France / Paris / région) ---------- */
+
+.views {
+  position: absolute;
+  left: 520px;
+  bottom: 92px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.view {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 16px;
+  border: 1px solid rgba(229, 234, 245, 0.18);
+  background: rgba(8, 30, 63, 0.82);
+  backdrop-filter: blur(6px);
+  color: rgba(229, 234, 245, 0.85);
+  font: 600 14px/1 var(--font-title);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+.view:hover { background: var(--od-intense); color: #fff; border-color: rgba(229, 234, 245, 0.4); }
+.view:focus-visible { outline: 2px solid var(--od-vif); outline-offset: 2px; }
+.view.is-active {
+  background: var(--od-vif);
+  border-color: var(--od-vif);
+  color: #fff;
+}
+.view__count {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(229, 234, 245, 0.16);
+  font: 800 12px/1 var(--font-title);
+  letter-spacing: 0;
+}
+.view.is-active .view__count { background: rgba(8, 30, 63, 0.35); }
+/* Région choisie en cliquant la carte : ce n'est pas un bouton, juste un rappel. */
+.view--current {
+  cursor: default;
+  background: var(--od-vif);
+  border-color: var(--od-vif);
+  color: #fff;
+}
+.views__hint {
+  font: 400 12px/1.2 var(--font-text);
+  letter-spacing: 0;
+  text-transform: none;
+  color: rgba(229, 234, 245, 0.55);
 }
 
 /* ---------- Légende ---------- */
@@ -695,8 +955,7 @@
   overflow: visible;
   fill: var(--od-vif);
 }
-.legend__pin--busy { width: 28px; height: 28px; margin: -6px; }
-.legend__pin--busy circle { fill: none; stroke: var(--od-vif); stroke-width: 9; opacity: 0.55; }
+.legend__pin--warn { fill: var(--od-orange); }
 .legend__pin--out { fill: var(--od-rouge); }
 .legend__note {
   padding-left: 18px;
@@ -711,10 +970,10 @@
 
 @media (max-height: 1000px) {
   .panel-wrap { top: 112px; bottom: 24px; }
-  .panel__body .block--last { display: none; }
   .kpi__value { font-size: 60px; margin: 10px 0 8px; }
   .kpi { padding: 16px 20px; }
-  .feed__item:nth-child(n + 4) { display: none; }
+  /* Plus rien n'est masqué en hauteur réduite : le volet et la liste des
+     pannes défilent désormais, donc tout reste accessible. */
 }
 @media (max-width: 1700px) {
   .legend__note { display: none; }
@@ -739,10 +998,22 @@
   100% { box-shadow: 0 0 0 10px rgba(226, 36, 36, 0); }
 }
 
+/* Les pastilles de la liste des pannes clignotent au même rythme que les pins
+   correspondants sur la carte : c'est ce qui fait le lien entre les deux. */
+@keyframes dot-blink-warn {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+@keyframes dot-blink-out {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .panel-wrap { transition: none; }
   .live-dot,
   .chip__ring::after,
-  .feed__item,
+  .panne,
+  .panne__dot,
   .error-toast { animation: none; }
 }

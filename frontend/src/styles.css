@@ -6,7 +6,9 @@
   --od-intense: #1E3A8A;   /* Bleu intense — structure, éléments interactifs */
   --od-vif: #3B82F6;       /* Bleu vif — accent : focus, mises en avant */
   --od-clair: #E5EAF5;     /* Bleu clair — fonds et zones d'interface */
-  --od-rouge: #E22424;     /* Rouge signal — uniquement les points d'attention */
+  --od-rouge: #E22424;     /* Rouge signal — dropper entièrement bloqué */
+  --od-orange: #FF9F1C;    /* Orange signal — dropper partiellement bloqué (sur fond sombre) */
+  --od-orange-deep: #B4610A; /* Le même orange, assombri pour rester lisible sur fond blanc */
   --od-navy-soft: #566D8C; /* Bleu OUIDROP à 70 % sur blanc : textes secondaires */
 
   --font-title: 'Saira Condensed', 'Arial Narrow', sans-serif; /* titres, chiffres, CTA */
@@ -74,6 +76,45 @@ body {
 .is-detailed .map-graticule,
 .is-detailed .map-cross { display: none; }
 
+/* ---------- Régions ----------
+
+   Les frontières sont toujours visibles ; un clic sur une région bascule tout
+   l'écran dessus (voir selectRegion() dans dropper-list.ts). Le remplissage
+   est transparent (fillOpacity: 0 côté Leaflet) mais bien présent : c'est lui
+   qui rend TOUTE la surface de la région cliquable, pas seulement son trait. */
+.region {
+  fill: #7FB2FF;
+  /* Tireté : on lit tout de suite une limite administrative, sans confondre
+     avec le trait plein des côtes et des frontières du pays. */
+  stroke: rgba(141, 186, 255, 0.55);
+  stroke-width: 1.2;
+  stroke-dasharray: 5 4;
+  cursor: pointer;
+  transition: fill-opacity 0.2s ease, stroke 0.2s ease;
+}
+.region:hover {
+  fill-opacity: 0.1;
+  stroke: rgba(180, 212, 255, 0.95);
+}
+.region.is-selected {
+  stroke: var(--od-vif);
+  stroke-width: 2.5;
+  stroke-dasharray: none;
+}
+/* Sur le fond MapTiler détaillé, les frontières s'effacent un peu pour ne pas
+   se battre avec les routes. */
+.is-detailed .region { stroke-opacity: 0.4; }
+
+/* Tout le pays sauf la région choisie : un grand rectangle sombre dans lequel
+   la région forme un trou (règle pair-impair, posée par Leaflet lui-même). */
+.region-mask {
+  fill: #04122A;
+  fill-opacity: 0.78;
+}
+/* Les villes repères sont des marqueurs : elles passent AU-DESSUS du masque,
+   donc on les atténue nous-mêmes tant qu'une région est isolée. */
+.is-region .city { opacity: 0.3; }
+
 /* Villes repères */
 .city {
   border-radius: 50%;
@@ -91,9 +132,30 @@ body {
 }
 .is-detailed .city { display: none; }
 
-/* ---------- Pins des droppers ---------- */
+/* ---------- Pins des droppers ----------
+
+   Trois états, et trois seulement (voir `health()` dans dropper-extras.ts) :
+     .pin--ok      bleu, fixe        → tout fonctionne
+     .pin--partiel orange, clignote  → une partie des casiers est bloquée
+     .pin--hs      rouge, clignote   → tout le dropper est bloqué
+*/
 
 .pin { cursor: pointer; }
+
+/* MODE TV : Leaflet pose lui-même un `transform: translate3d(...)` en style
+   inline sur l'élément `.pin` pour le positionner — impossible d'y ajouter
+   notre agrandissement sans écraser sa position. D'où ce calque intermédiaire,
+   mis à l'échelle depuis le point au sol (= iconAnchor), ce qui garde le pin
+   pointé exactement au même endroit quelle que soit sa taille. */
+.pin__scale {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 38px;
+  height: 52px;
+  transform: scale(var(--pin-scale, 1));
+  transform-origin: 19px 52px;
+}
 
 .pin__badge {
   position: absolute;
@@ -114,7 +176,14 @@ body {
   transition: stroke-width 0.3s ease;
 }
 .pin__o { fill: #fff; }
-.pin.is-out .pin__shape { fill: var(--od-rouge); }
+.pin--partiel .pin__shape { fill: var(--od-orange); }
+.pin--hs .pin__shape { fill: var(--od-rouge); }
+
+/* Un dropper en panne clignote : c'est ce qui accroche l'œil de loin, sur un
+   écran que personne ne regarde en continu. Le point au sol et le nom, eux,
+   restent fixes et pleinement lisibles. */
+.pin--partiel .pin__badge { animation: pin-blink-warn 1.6s ease-in-out infinite; }
+.pin--hs .pin__badge { animation: pin-blink-out 1.3s ease-in-out infinite; }
 
 .pin__stem {
   position: absolute;
@@ -124,7 +193,7 @@ body {
   height: 10px;
   background: rgba(229, 234, 245, 0.75);
 }
-.pin::after {
+.pin__scale::after {
   /* le point au sol = position exacte du dropper */
   content: '';
   position: absolute;
@@ -136,22 +205,6 @@ body {
   background: #fff;
   box-shadow: 0 0 0 3px rgba(8, 30, 63, 0.6);
 }
-
-/* Ondes quand le dropper est en cours d'utilisation */
-.pin__pulse {
-  position: absolute;
-  left: 19px;
-  top: 52px;
-  width: 56px;
-  height: 56px;
-  margin: -28px 0 0 -28px;
-  border-radius: 50%;
-  border: 2px solid var(--od-vif);
-  opacity: 0;
-  pointer-events: none;
-}
-.pin.is-busy .pin__pulse { animation: pin-pulse 2s ease-out infinite; }
-.pin.is-busy .pin__badge { filter: drop-shadow(0 0 14px rgba(59, 130, 246, 0.75)) drop-shadow(0 6px 10px rgba(3, 12, 31, 0.6)); }
 
 .pin__label {
   position: absolute;
@@ -168,18 +221,51 @@ body {
 
 .pin:hover .pin__badge { transform: scale(1.12); }
 
+/* Carte dense (tout le réseau, dézoomé) : les noms sous les pins se
+   chevaucheraient et cacheraient la carte, donc on ne garde que celui du
+   dropper affiché dans le volet. Ils reviennent dès qu'on zoome ou qu'on
+   isole une région. */
+.is-dense .pin__label { display: none; }
+.is-dense .pin.is-selected .pin__label { display: block; }
+
 /* Pin de regroupement : plusieurs droppers proches, affichés comme un seul pin
    tant qu'on n'est pas assez zoomé. Même silhouette, avec le nombre au centre
    à la place du "O" — dessiné DANS le svg (comme la forme) pour être sûr qu'il
    s'affiche toujours au-dessus, sans conflit d'empilement avec un <span> HTML. */
 .pin__count {
   fill: #fff;
-  font: 800 52px/1 var(--font-title);
+  font: 800 40px/1 var(--font-title);
   paint-order: stroke;
   stroke: rgba(3, 12, 31, 0.55);
   stroke-width: 3px;
   stroke-linejoin: round;
   pointer-events: none;
+}
+
+/* Groupe mixte : une partie seulement des droppers du groupe est en panne —
+   le pin passe en orange (pas en rouge, qui voudrait dire "tout le groupe est
+   bloqué") et ce badge donne le nombre exact de droppers concernés. */
+.pin__alert {
+  position: absolute;
+  right: -6px;
+  top: -6px;
+  /* Leaflet impose z-index: 200 à tout <svg> dans la carte (règle globale
+     .leaflet-map-pane svg) — donc le svg du pin (.pin__badge) passerait
+     au-dessus de ce badge malgré l'ordre du DOM. Il faut dépasser 200. */
+  z-index: 201;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--od-rouge);
+  color: #fff;
+  font: 800 11px/1 var(--font-title);
+  box-shadow: 0 0 0 2px var(--od-navy);
+  pointer-events: none;
+  animation: pin-blink-warn 1.6s ease-in-out infinite;
 }
 
 /* Pin du dropper affiché dans le volet */
@@ -193,9 +279,28 @@ body {
   text-shadow: none;
 }
 
-@keyframes pin-pulse {
-  from { transform: scale(0.25); opacity: 0.9; }
-  to { transform: scale(1.5); opacity: 0; }
+/* Clignotement des pins en panne : l'opacité descend sans jamais s'éteindre
+   complètement (le pin reste repérable à tout moment), et la lueur autour
+   respire en même temps pour que ça se voie de loin sur une télé. */
+@keyframes pin-blink-out {
+  0%, 100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 13px rgba(226, 36, 36, 0.9)) drop-shadow(0 6px 10px rgba(3, 12, 31, 0.6));
+  }
+  50% {
+    opacity: 0.4;
+    filter: drop-shadow(0 0 2px rgba(226, 36, 36, 0.15)) drop-shadow(0 6px 10px rgba(3, 12, 31, 0.6));
+  }
+}
+@keyframes pin-blink-warn {
+  0%, 100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 11px rgba(255, 159, 28, 0.85)) drop-shadow(0 6px 10px rgba(3, 12, 31, 0.6));
+  }
+  50% {
+    opacity: 0.5;
+    filter: drop-shadow(0 0 2px rgba(255, 159, 28, 0.15)) drop-shadow(0 6px 10px rgba(3, 12, 31, 0.6));
+  }
 }
 
 /* Trait de rappel volet → pin (les tirets avancent vers le pin) */
@@ -219,6 +324,12 @@ body {
 .leaflet-control-attribution a { color: rgba(229, 234, 245, 0.85); }
 
 @media (prefers-reduced-motion: reduce) {
-  .pin.is-busy .pin__pulse { animation: none; opacity: 0.6; transform: scale(0.9); }
+  /* Pas de clignotement, mais la couleur et la lueur restent : l'information
+     "ce dropper est en panne" ne doit jamais dépendre de l'animation. */
+  .pin--partiel .pin__badge,
+  .pin--hs .pin__badge,
+  .pin__alert { animation: none; }
+  .pin--partiel .pin__badge { filter: drop-shadow(0 0 11px rgba(255, 159, 28, 0.85)) drop-shadow(0 6px 10px rgba(3, 12, 31, 0.6)); }
+  .pin--hs .pin__badge { filter: drop-shadow(0 0 13px rgba(226, 36, 36, 0.9)) drop-shadow(0 6px 10px rgba(3, 12, 31, 0.6)); }
   .leader { animation: none; }
 }

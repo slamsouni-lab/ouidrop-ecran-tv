@@ -16,285 +16,389 @@
     </filter>
   </svg>
 
-  <!-- 2. En-tête : logo de la charte + horloge -->
-  <header class="brand">
-    <img class="brand__icon" src="brand/ouidrop-icon-blue.svg" alt="" />
-    <div class="brand__name">
-      <img class="brand__wordmark" src="brand/ouidrop-wordmark-white.svg" alt="OUIDROP" />
-      @if (connectionError()) {
-        <p class="brand__sub brand__sub--error" role="status">
-          <span class="live-dot live-dot--error"></span>Connexion instable · dernières données affichées
-        </p>
-      } @else {
-        <p class="brand__sub"><span class="live-dot"></span>Réseau Dropper · en direct</p>
-      }
-    </div>
-    <div class="brand__clock">
-      <p class="brand__time">{{ clock() }}</p>
-      <p class="brand__date">{{ today() }}</p>
-    </div>
-  </header>
+  <!-- MODE TV — tout ce qui est posé PAR-DESSUS la carte vit dans ce calque,
+       agrandi d'un bloc par la variable CSS `--ui-zoom` (calculée dans
+       dropper-list.ts). L'intérieur est donc toujours dessiné aux dimensions
+       de référence : sur une télé, rien n'est repositionné, tout est
+       simplement plus grand, dans les mêmes proportions. -->
+  <div class="tv__ui">
 
-  <!-- Popup de panne : en plus du badge discret dans l'en-tête, affichée une
-       fois par épisode de panne, fermable — le badge, lui, reste tant que
-       la connexion n'est pas rétablie. -->
-  @if (showErrorPopup()) {
-    <div class="error-toast" role="alert">
-      <svg class="alert__icon" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 3.5 22 20.5H2z" /><path d="M12 10v4.5M12 17.2v.3" />
-      </svg>
-      <div class="error-toast__body">
-        <p class="alert__title">Connexion instable</p>
-        <p class="alert__text">Impossible de contacter le serveur. Les données affichées datent de la dernière mise à jour réussie.</p>
-      </div>
-      <button type="button" class="error-toast__close" (click)="dismissErrorPopup()" aria-label="Fermer">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" /></svg>
-      </button>
-    </div>
-  }
-
-  <!-- 3. Volet du dropper affiché -->
-  <div #panel class="panel-wrap" [class.is-open]="isPanelOpen()">
-    <aside class="panel" aria-live="polite">
-      @if (selected(); as d) {
-        <div class="panel__head">
-          <img class="panel__blueprint" src="brand/blueprint-dropper.svg" alt="" />
-
-          <div class="panel__tools">
-            <button type="button" class="tool" (click)="toggleAutoCycle()"
-              [attr.aria-label]="autoCycle() ? 'Mettre le défilement en pause' : 'Reprendre le défilement'">
-              @if (autoCycle()) {
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12M15 6v12" /></svg>
-              } @else {
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" /></svg>
-              }
-            </button>
-            <button type="button" class="tool" (click)="closePanel()" aria-label="Fermer le volet">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" /></svg>
-            </button>
-          </div>
-
-          <p class="panel__eyebrow">{{ d.enseigne }}</p>
-          <h2 class="panel__title">{{ d.site }}</h2>
-          <p class="panel__address">
-            @for (line of d.address.split(', '); track $index) {
-              <span>{{ line }}</span>
-            }
+    <!-- 2. En-tête : logo de la charte + horloge -->
+    <header class="brand">
+      <img class="brand__icon" src="brand/ouidrop-icon-blue.svg" alt="" />
+      <div class="brand__name">
+        <img class="brand__wordmark" src="brand/ouidrop-wordmark-white.svg" alt="OUIDROP" />
+        @if (connectionError()) {
+          <p class="brand__sub brand__sub--error" role="status">
+            <span class="live-dot live-dot--error"></span>Connexion instable · dernières données affichées
           </p>
+        } @else if (region(); as r) {
+          <p class="brand__sub"><span class="live-dot"></span>Vue {{ r.nom }} · {{ droppersLabel() }}</p>
+        } @else {
+          <p class="brand__sub"><span class="live-dot"></span>Réseau Dropper · en direct</p>
+        }
+      </div>
+      <div class="brand__clock">
+        <p class="brand__time">{{ clock() }}</p>
+        <p class="brand__date">{{ today() }}</p>
+      </div>
+      <!-- Alerte sonore : un clic ici sert aussi de feu vert du navigateur
+           pour jouer du son (sans geste de l'utilisateur, il le refuse). -->
+      <button type="button" class="sound" [class.is-off]="!soundOn()" (click)="toggleSound()"
+        [attr.aria-label]="soundOn() ? 'Couper l alerte sonore' : 'Activer l alerte sonore'"
+        [attr.title]="soundOn() ? 'Alerte sonore activée' : 'Alerte sonore coupée'">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 9.5h3.6L12 5.6v12.8L7.6 14.5H4z" />
+          @if (soundOn()) {
+            <path class="sound__waves" d="M15.4 9.3a3.8 3.8 0 0 1 0 5.4M18 6.9a7.2 7.2 0 0 1 0 10.2" />
+          } @else {
+            <path d="M15.8 9.8l4.6 4.6M20.4 9.8l-4.6 4.6" />
+          }
+        </svg>
+      </button>
+    </header>
 
-          <div class="panel__chips">
-            @if (d.service === 'en-service') {
-              <span class="chip chip--on"><span class="chip__dot"></span>En service</span>
-              @if (d.inUse) {
-                <span class="chip chip--busy"><span class="chip__ring"></span>En utilisation</span>
-              } @else {
-                <span class="chip chip--idle">Libre</span>
+    <!-- Popup de panne : en plus du badge discret dans l'en-tête, affichée une
+         fois par épisode de panne, fermable — le badge, lui, reste tant que
+         la connexion n'est pas rétablie. -->
+    @if (showErrorPopup()) {
+      <div class="error-toast" role="alert">
+        <svg class="alert__icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3.5 22 20.5H2z" /><path d="M12 10v4.5M12 17.2v.3" />
+        </svg>
+        <div class="error-toast__body">
+          <p class="alert__title">Connexion instable</p>
+          <p class="alert__text">Impossible de contacter le serveur. Les données affichées datent de la dernière mise à jour réussie.</p>
+        </div>
+        <button type="button" class="error-toast__close" (click)="dismissErrorPopup()" aria-label="Fermer">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" /></svg>
+        </button>
+      </div>
+    }
+
+    <!-- 3. Volet du dropper affiché -->
+    <div #panel class="panel-wrap" [class.is-open]="isPanelOpen()">
+      <aside class="panel" aria-live="polite">
+        @if (selected(); as d) {
+          <div class="panel__head">
+            <img class="panel__blueprint" src="brand/blueprint-dropper.svg" alt="" />
+
+            <div class="panel__tools">
+              <button type="button" class="tool" (click)="toggleAutoCycle()"
+                [attr.aria-label]="autoCycle() ? 'Mettre le défilement en pause' : 'Reprendre le défilement'">
+                @if (autoCycle()) {
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12M15 6v12" /></svg>
+                } @else {
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" /></svg>
+                }
+              </button>
+              <button type="button" class="tool" (click)="closePanel()" aria-label="Fermer le volet">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" /></svg>
+              </button>
+            </div>
+
+            <p class="panel__eyebrow">{{ d.enseigne }}</p>
+            <h2 class="panel__title">{{ d.site }}</h2>
+            <p class="panel__address">
+              @for (line of d.address.split(', '); track $index) {
+                <span>{{ line }}</span>
               }
-            } @else {
-              <span class="chip chip--out"><span class="chip__dot"></span>Hors service</span>
+            </p>
+            <!-- Infos réelles issues de la base (référence, mise en service). -->
+            @if (d.id || d.misEnServiceLe) {
+              <p class="panel__ref">
+                @if (d.id) { <span>Réf. {{ d.id }}</span> }
+                @if (d.id && d.misEnServiceLe) { <span class="panel__ref-sep"></span> }
+                @if (d.misEnServiceLe) { <span>En service depuis {{ commissioned(d.misEnServiceLe) }}</span> }
+              </p>
+            }
+
+            <div class="panel__chips">
+              @if (selectedHealth() === 'hs') {
+                <span class="chip chip--out"><span class="chip__dot"></span>Entièrement bloqué</span>
+              } @else {
+                @if (selectedHealth() === 'partiel') {
+                  <span class="chip chip--warn"><span class="chip__dot"></span>Partiellement bloqué</span>
+                } @else {
+                  <span class="chip chip--on"><span class="chip__dot"></span>En service</span>
+                }
+                <!-- "En utilisation" reste ici, dans le volet : c'est une info de
+                     confort, elle n'a plus à animer la carte en permanence. -->
+                @if (d.inUse) {
+                  <span class="chip chip--busy"><span class="chip__ring"></span>En utilisation</span>
+                } @else {
+                  <span class="chip chip--idle">Libre</span>
+                }
+              }
+            </div>
+
+            <!-- Barre de progression du mode TV.
+                 Astuce : on alterne entre deux animations identiques (classe "alt") à chaque
+                 nouveau dropper, ce qui oblige le navigateur à relancer l'animation depuis 0. -->
+            @if (autoCycle()) {
+              <div class="panel__progress" [class.alt]="cycleKey() % 2 === 1" [class.is-waiting]="manualPause()"
+                [style.animation-duration.ms]="manualPause() ? manualPauseMs : cycleMs"></div>
             }
           </div>
 
-          <!-- Barre de progression du mode TV.
-               Astuce : on alterne entre deux animations identiques (classe "alt") à chaque
-               nouveau dropper, ce qui oblige le navigateur à relancer l'animation depuis 0. -->
-          @if (autoCycle()) {
-            <div class="panel__progress" [class.alt]="cycleKey() % 2 === 1" [class.is-waiting]="manualPause()"
-              [style.animation-duration.ms]="manualPause() ? manualPauseMs : cycleMs"></div>
-          }
-        </div>
-
-        <div class="panel__body">
-          @if (d.service === 'hors-service') {
-            <div class="alert" role="status">
-              <svg class="alert__icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 3.5 22 20.5H2z" /><path d="M12 10v4.5M12 17.2v.3" />
-              </svg>
-              <div>
-                <p class="alert__title">Hors service depuis {{ formatAgo(minutesSince(d.outOfServiceMinutesAgo ?? 0)) }}</p>
-                <p class="alert__text">{{ d.outOfServiceReason }}</p>
-              </div>
-            </div>
-          }
-
-          <!-- Dernière utilisation -->
-          <section class="block">
-            <div class="block__head">
-              <h3 class="label">Dernière utilisation</h3>
-              <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
-                <circle class="i-main" cx="18" cy="20" r="13" />
-                <path class="i-main" d="M18 7v3M18 30v3M5 20h3M28 20h3" />
-                <path class="i-accent" d="M18 12v8h7" />
-                <path class="i-accent i-dots" d="M33 8.5a17 17 0 0 1 0 23" />
-              </svg>
-            </div>
-            <p class="last-use"><span class="last-use__prefix">il y a</span>{{ formatAgo(lastUse()) }}</p>
-            <p class="muted">{{ d.lastUseLabel }} à {{ clockAt(d.lastUseMinutesAgo) }}</p>
-          </section>
-
-          <!-- Occupation des casiers (jauge façon icône « Autonomie » de la charte) -->
-          <section class="block">
-            <div class="block__head">
-              <h3 class="label">Occupation des casiers</h3>
-              <span class="tag" [class.tag--alert]="isFull()">
-                {{ isFull() ? 'Complet' : occupancy().used + ' / ' + occupancy().total }}
-              </span>
-            </div>
-            <div class="lockers">
-              <svg class="gauge" viewBox="0 0 160 160" aria-hidden="true">
-                <circle class="gauge__track" cx="80" cy="80" r="64" />
-                <circle class="gauge__arc" [class.is-full]="isFull()" cx="80" cy="80" r="64"
-                  [attr.stroke-dasharray]="gaugeDash()" transform="rotate(-90 80 80)" />
-                <path class="gauge__ticks" d="M80 22v7M138 80h-7M80 138v-7M22 80h7" />
-                <text class="gauge__value" x="80" y="86">{{ occupancy().percent }}%</text>
-                <text class="gauge__caption" x="80" y="106">occupés</text>
-              </svg>
-              <ul class="zones">
-                @for (zone of d.zones; track zone.label) {
-                  <li class="zone">
-                    <span class="zone__name"><i [class]="'zone__dot zone__dot--' + $index"></i>{{ zone.label }}</span>
-                    <span class="zone__count" [class.is-full]="zone.used === zone.total">{{ zone.used }}/{{ zone.total }}</span>
-                    <span class="zone__cells">
-                      @for (used of cells(zone); track $index) {
-                        <i [class.is-used]="used"></i>
-                      }
-                    </span>
-                  </li>
-                }
-              </ul>
-            </div>
-          </section>
-
-          <!-- Aujourd'hui -->
-          <section class="block">
-            <h3 class="label">Aujourd'hui</h3>
-            <div class="today">
-              <div class="today__item">
-                <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
-                  <path class="i-main i-dash" d="M5 6v28M35 4v9" />
-                  <path class="i-accent" d="M5 32l11-12 8 7 11-12" />
-                  <circle class="i-fill" cx="16" cy="20" r="2.4" /><circle class="i-fill" cx="24" cy="27" r="2.4" />
+          <div class="panel__body">
+            @if (selectedHealth() === 'hs') {
+              <div class="alert" role="status">
+                <svg class="alert__icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 3.5 22 20.5H2z" /><path d="M12 10v4.5M12 17.2v.3" />
                 </svg>
-                <p class="today__value">{{ d.ordersToday }}</p>
-                <p class="today__label">Commandes</p>
+                <div>
+                  <p class="alert__title">Entièrement bloqué depuis {{ formatAgo(minutesSince(d.statusSinceMinutesAgo ?? 0)) }}</p>
+                  <p class="alert__text">{{ d.statusReason }}</p>
+                </div>
               </div>
-              <div class="today__item">
+            } @else if (selectedHealth() === 'partiel') {
+              <div class="alert alert--warn" role="status">
+                <svg class="alert__icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 3.5 22 20.5H2z" /><path d="M12 10v4.5M12 17.2v.3" />
+                </svg>
+                <div>
+                  <p class="alert__title">Partiellement bloqué depuis {{ formatAgo(minutesSince(d.statusSinceMinutesAgo ?? 0)) }}</p>
+                  <p class="alert__text">{{ d.statusReason }}</p>
+                </div>
+              </div>
+            }
+
+            <!-- Dernière utilisation -->
+            <section class="block">
+              <div class="block__head">
+                <h3 class="label">Dernière utilisation</h3>
                 <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
                   <circle class="i-main" cx="18" cy="20" r="13" />
+                  <path class="i-main" d="M18 7v3M18 30v3M5 20h3M28 20h3" />
                   <path class="i-accent" d="M18 12v8h7" />
                   <path class="i-accent i-dots" d="M33 8.5a17 17 0 0 1 0 23" />
                 </svg>
-                <p class="today__value">{{ d.avgPickup }}</p>
-                <p class="today__label">Retrait moyen</p>
               </div>
-              <div class="today__item">
-                <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
-                  <circle class="i-main" cx="20" cy="16" r="12" />
-                  <path class="i-accent" d="M14.5 16.5l4 4 7-8" />
-                  <path class="i-accent i-dots" d="M12.5 11a9 9 0 0 1 15 0" />
-                  <path class="i-main" d="M11 32h18M20 32v5" />
+              <p class="last-use"><span class="last-use__prefix">il y a</span>{{ formatAgo(lastUse()) }}</p>
+              <p class="muted">{{ d.lastUseLabel }} à {{ clockAt(d.lastUseMinutesAgo) }}</p>
+            </section>
+
+            <!-- Occupation des casiers (jauge façon icône « Autonomie » de la charte) -->
+            <section class="block">
+              <div class="block__head">
+                <h3 class="label">Occupation des casiers</h3>
+                <span class="tag" [class.tag--alert]="isFull()">
+                  {{ isFull() ? 'Complet' : occupancy().used + ' / ' + occupancy().total }}
+                </span>
+              </div>
+              <div class="lockers">
+                <svg class="gauge" viewBox="0 0 160 160" aria-hidden="true">
+                  <circle class="gauge__track" cx="80" cy="80" r="64" />
+                  <circle class="gauge__arc" [class.is-full]="isFull()" cx="80" cy="80" r="64"
+                    [attr.stroke-dasharray]="gaugeDash()" transform="rotate(-90 80 80)" />
+                  <path class="gauge__ticks" d="M80 22v7M138 80h-7M80 138v-7M22 80h7" />
+                  <text class="gauge__value" x="80" y="86">{{ occupancy().percent }}%</text>
+                  <text class="gauge__caption" x="80" y="106">occupés</text>
                 </svg>
-                <p class="today__value">{{ formatDecimal(d.satisfaction) }}<small>/5</small></p>
-                <p class="today__label">Satisfaction</p>
+                <ul class="zones">
+                  @for (zone of d.zones; track zone.label) {
+                    <li class="zone">
+                      <span class="zone__name"><i [class]="'zone__dot zone__dot--' + $index"></i>{{ zone.label }}</span>
+                      <span class="zone__count" [class.is-full]="zone.used === zone.total">
+                        {{ zone.used }}/{{ zone.total }}
+                      </span>
+                      <span class="zone__cells">
+                        @for (cell of cells(zone); track $index) {
+                          <i [class.is-used]="cell === 'used'"></i>
+                        }
+                      </span>
+                    </li>
+                  }
+                </ul>
               </div>
-            </div>
-          </section>
+            </section>
 
-          <!-- Activité récente -->
-          <section class="block block--last">
-            <h3 class="label">Activité récente</h3>
-            <ol class="timeline">
-              @for (event of d.activity; track event.text + event.minutesAgo) {
-                <li class="timeline__item" [class.is-alert]="event.alert">
-                  <time class="timeline__time">{{ clockAt(event.minutesAgo) }}</time>
-                  <span class="timeline__text">{{ event.text }}</span>
-                </li>
-              }
-            </ol>
-          </section>
+            <!-- Aujourd'hui -->
+            <section class="block">
+              <h3 class="label">Aujourd'hui</h3>
+              <div class="today">
+                <div class="today__item">
+                  <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
+                    <path class="i-main i-dash" d="M5 6v28M35 4v9" />
+                    <path class="i-accent" d="M5 32l11-12 8 7 11-12" />
+                    <circle class="i-fill" cx="16" cy="20" r="2.4" /><circle class="i-fill" cx="24" cy="27" r="2.4" />
+                  </svg>
+                  <p class="today__value">{{ d.ordersToday }}</p>
+                  <p class="today__label">Commandes</p>
+                </div>
+                <div class="today__item">
+                  <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
+                    <circle class="i-main" cx="18" cy="20" r="13" />
+                    <path class="i-accent" d="M18 12v8h7" />
+                    <path class="i-accent i-dots" d="M33 8.5a17 17 0 0 1 0 23" />
+                  </svg>
+                  <p class="today__value">{{ d.avgPickup }}</p>
+                  <p class="today__label">Retrait moyen</p>
+                </div>
+                <div class="today__item">
+                  <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
+                    <circle class="i-main" cx="20" cy="16" r="12" />
+                    <path class="i-accent" d="M14.5 16.5l4 4 7-8" />
+                    <path class="i-accent i-dots" d="M12.5 11a9 9 0 0 1 15 0" />
+                    <path class="i-main" d="M11 32h18M20 32v5" />
+                  </svg>
+                  <p class="today__value">{{ formatDecimal(d.satisfaction) }}<small>/5</small></p>
+                  <p class="today__label">Satisfaction</p>
+                </div>
+              </div>
+            </section>
+
+            <!-- Activité récente -->
+            <section class="block block--last">
+              <h3 class="label">Activité récente</h3>
+              <ol class="timeline">
+                @for (event of d.activity; track event.text + event.minutesAgo) {
+                  <!-- Un point d'attention sur un dropper seulement partiellement
+                       bloqué s'affiche en orange, comme son pin : le rouge reste
+                       réservé aux droppers complètement arrêtés. -->
+                  <li class="timeline__item" [class.is-alert]="event.alert"
+                    [class.is-warn]="event.alert && selectedHealth() === 'partiel'">
+                    <time class="timeline__time">{{ clockAt(event.minutesAgo) }}</time>
+                    <span class="timeline__text">{{ event.text }}</span>
+                  </li>
+                }
+              </ol>
+            </section>
+          </div>
+        } @else {
+          <!-- Région sans aucun dropper installé : on le dit, plutôt qu'un volet blanc. -->
+          <div class="panel__empty">
+            <p class="panel__eyebrow">{{ region()?.nom ?? 'Réseau' }}</p>
+            <h2 class="panel__title">Aucun dropper ici</h2>
+            <p class="panel__empty-text">Pas encore de dropper installé dans cette région.</p>
+            <button type="button" class="view is-active" (click)="showFrance()">Revenir à la France entière</button>
+          </div>
+        }
+      </aside>
+    </div>
+
+    <!-- 4. Colonne de droite : chiffres du réseau + pannes en cours -->
+    <section #rail class="rail">
+      <article class="kpi">
+        <div class="kpi__head">
+          <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
+            <path class="i-main i-dash" d="M5 6v28M35 4v9" />
+            <path class="i-accent" d="M5 32l11-12 8 7 11-12" />
+            <circle class="i-fill" cx="16" cy="20" r="2.4" /><circle class="i-fill" cx="24" cy="27" r="2.4" />
+          </svg>
+          <h3 class="kpi__label">Commandes aujourd'hui</h3>
         </div>
+        <p class="kpi__value">{{ orderCount() }}</p>
+        <p class="kpi__meta"><span class="live-dot"></span>+{{ ordersLastHour() }} sur la dernière heure</p>
+      </article>
+
+      <article class="kpi">
+        <div class="kpi__head">
+          <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
+            <rect class="i-main" x="4" y="4" width="13" height="13" rx="1.5" />
+            <rect class="i-main" x="23" y="4" width="13" height="13" rx="1.5" />
+            <rect class="i-main" x="4" y="23" width="13" height="13" rx="1.5" />
+            <rect class="i-accent i-dash" x="23" y="23" width="13" height="13" rx="1.5" />
+            <path class="i-accent" d="M17 10.5h6M29.5 17v6M17 29.5h6" />
+          </svg>
+          <h3 class="kpi__label">Droppers en service</h3>
+        </div>
+        <p class="kpi__value">{{ inServiceCount() }}<span class="kpi__of">/{{ droppers().length }}</span></p>
+        <p class="kpi__meta">
+          <span class="dot dot--busy"></span>{{ inUseCount() }} en utilisation
+          @if (partialCount() > 0) {
+            <span class="kpi__sep"></span><span class="dot dot--warn"></span>{{ partialCount() }} partiel{{ partialCount() > 1 ? 's' : '' }}
+          }
+          @if (outOfServiceCount() > 0) {
+            <span class="kpi__sep"></span><span class="dot dot--out"></span>{{ outOfServiceCount() }} bloqué{{ outOfServiceCount() > 1 ? 's' : '' }}
+          }
+        </p>
+      </article>
+
+      <article class="kpi">
+        <div class="kpi__head">
+          <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
+            <circle class="i-main" cx="20" cy="16" r="12" />
+            <path class="i-accent" d="M14.5 16.5l4 4 7-8" />
+            <path class="i-accent i-dots" d="M12.5 11a9 9 0 0 1 15 0" />
+            <path class="i-main" d="M11 32h18M20 32v5" />
+          </svg>
+          <h3 class="kpi__label">Note moyenne clients</h3>
+        </div>
+        <p class="kpi__value">{{ ratingLabel() }}@if (averageRating() > 0) {<span class="kpi__of">/5</span>}</p>
+        <p class="kpi__meta">Sur les 30 derniers jours</p>
+      </article>
+
+      <!-- PANNES EN COURS — ce bloc ne liste plus que les problèmes : heure de
+           début, pastille de la couleur du dropper (qui clignote comme son
+           pin), et un clic qui ouvre le volet de détail du dropper concerné. -->
+      <article class="pannes">
+        <h3 class="pannes__title">
+          Pannes en cours
+          @if (pannes().length > 0) {
+            <span class="pannes__count" [class.is-hs]="outOfServiceCount() > 0">{{ pannes().length }}</span>
+          }
+        </h3>
+
+        @if (pannes().length > 0) {
+          <ol class="pannes__list">
+            @for (panne of pannes(); track panne.nom) {
+              <li>
+                <button type="button" class="panne" [class.is-hs]="panne.health === 'hs'"
+                  (click)="select(panne.nom, true)"
+                  [attr.aria-label]="'Voir le détail de ' + panne.site">
+                  <span class="panne__dot" aria-hidden="true"></span>
+                  <span class="panne__body">
+                    <span class="panne__head">
+                      <time class="panne__time">{{ panne.startedAt }}</time>
+                      <span class="panne__since">{{ panne.sinceLabel }}</span>
+                    </span>
+                    <span class="panne__site">{{ panne.site }}</span>
+                    <span class="panne__text">{{ panne.text }}</span>
+                  </span>
+                </button>
+              </li>
+            }
+          </ol>
+        } @else {
+          <p class="pannes__empty">
+            <span class="pannes__empty-dot" aria-hidden="true"></span>
+            Aucune panne en cours — tout le réseau est opérationnel.
+          </p>
+        }
+      </article>
+    </section>
+
+    <!-- 5. Sélecteur de vue : raccourcis France / Paris, et rappel de la
+         région en cours quand elle a été choisie en cliquant la carte. -->
+    <div class="views">
+      <button type="button" class="view" [class.is-active]="!regionCode()" (click)="showFrance()">
+        France entière<span class="view__count">{{ allDroppers().length }}</span>
+      </button>
+      <button type="button" class="view" [class.is-active]="regionCode() === parisCode" (click)="showParis()">
+        Paris / Île-de-France<span class="view__count">{{ countIn(parisCode) }}</span>
+      </button>
+      @if (region(); as r) {
+        @if (r.code !== parisCode) {
+          <span class="view view--current">{{ r.nom }}<span class="view__count">{{ droppers().length }}</span></span>
+        }
       }
-    </aside>
+      <span class="views__hint">Cliquez une région sur la carte</span>
+    </div>
+
+    <!-- 6. Légende des pins -->
+    <footer class="legend">
+      <span class="legend__item">
+        <svg class="legend__pin" viewBox="0 0 100 100" aria-hidden="true"><path [attr.d]="anglePath" /></svg>En service
+      </span>
+      <span class="legend__item">
+        <svg class="legend__pin legend__pin--warn" viewBox="0 0 100 100" aria-hidden="true"><path [attr.d]="anglePath" /></svg>Partiellement bloqué
+      </span>
+      <span class="legend__item">
+        <svg class="legend__pin legend__pin--out" viewBox="0 0 100 100" aria-hidden="true"><path [attr.d]="anglePath" /></svg>Entièrement bloqué
+      </span>
+      <span class="legend__note">Statuts, casiers et activité : données d'exemple</span>
+    </footer>
   </div>
-
-  <!-- 4. Colonne de droite : chiffres du réseau + fil d'activité -->
-  <section #rail class="rail">
-    <article class="kpi">
-      <div class="kpi__head">
-        <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
-          <path class="i-main i-dash" d="M5 6v28M35 4v9" />
-          <path class="i-accent" d="M5 32l11-12 8 7 11-12" />
-          <circle class="i-fill" cx="16" cy="20" r="2.4" /><circle class="i-fill" cx="24" cy="27" r="2.4" />
-        </svg>
-        <h3 class="kpi__label">Commandes en temps réel</h3>
-      </div>
-      <p class="kpi__value">{{ orderCount() }}</p>
-      <p class="kpi__meta"><span class="live-dot"></span>+{{ ordersLastHour() }} sur la dernière heure</p>
-    </article>
-
-    <article class="kpi">
-      <div class="kpi__head">
-        <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
-          <rect class="i-main" x="4" y="4" width="13" height="13" rx="1.5" />
-          <rect class="i-main" x="23" y="4" width="13" height="13" rx="1.5" />
-          <rect class="i-main" x="4" y="23" width="13" height="13" rx="1.5" />
-          <rect class="i-accent i-dash" x="23" y="23" width="13" height="13" rx="1.5" />
-          <path class="i-accent" d="M17 10.5h6M29.5 17v6M17 29.5h6" />
-        </svg>
-        <h3 class="kpi__label">Droppers en service</h3>
-      </div>
-      <p class="kpi__value">{{ inServiceCount() }}<span class="kpi__of">/{{ droppers().length }}</span></p>
-      <p class="kpi__meta">
-        <span class="dot dot--busy"></span>{{ inUseCount() }} en utilisation
-        @if (outOfServiceCount() > 0) {
-          <span class="kpi__sep"></span><span class="dot dot--out"></span>{{ outOfServiceCount() }} hors service
-        }
-      </p>
-    </article>
-
-    <article class="kpi">
-      <div class="kpi__head">
-        <svg class="icon" viewBox="0 0 40 40" aria-hidden="true">
-          <circle class="i-main" cx="20" cy="16" r="12" />
-          <path class="i-accent" d="M14.5 16.5l4 4 7-8" />
-          <path class="i-accent i-dots" d="M12.5 11a9 9 0 0 1 15 0" />
-          <path class="i-main" d="M11 32h18M20 32v5" />
-        </svg>
-        <h3 class="kpi__label">Note moyenne clients</h3>
-      </div>
-      <p class="kpi__value">{{ ratingLabel() }}<span class="kpi__of">/5</span></p>
-      <p class="kpi__meta">Sur les 30 derniers jours</p>
-    </article>
-
-    <article class="feed">
-      <h3 class="feed__title">Activité du réseau</h3>
-      <ol class="feed__list">
-        @for (item of feed(); track item.key) {
-          <li class="feed__item" [class.is-alert]="item.alert">
-            <time class="feed__time">{{ item.time }}</time>
-            <div>
-              <p class="feed__site">{{ item.site }}</p>
-              <p class="feed__text">{{ item.text }}</p>
-            </div>
-          </li>
-        }
-      </ol>
-    </article>
-  </section>
-
-  <!-- 5. Légende des pins -->
-  <footer class="legend">
-    <span class="legend__item">
-      <svg class="legend__pin" viewBox="0 0 100 100" aria-hidden="true"><path [attr.d]="anglePath" /></svg>En service
-    </span>
-    <span class="legend__item">
-      <svg class="legend__pin legend__pin--busy" viewBox="-40 -40 180 180" aria-hidden="true">
-        <circle cx="50" cy="50" r="84" /><path [attr.d]="anglePath" />
-      </svg>En utilisation
-    </span>
-    <span class="legend__item">
-      <svg class="legend__pin legend__pin--out" viewBox="0 0 100 100" aria-hidden="true"><path [attr.d]="anglePath" /></svg>Hors service
-    </span>
-    <span class="legend__note">Statuts, casiers et activité : données d'exemple</span>
-  </footer>
 </div>

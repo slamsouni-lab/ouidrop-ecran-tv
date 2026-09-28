@@ -1,5 +1,5 @@
 export const environment = {
-  maptilerKey: 'TA_CLE_MAPTILER',
+  maptilerKey: 'M1rIo4ysj6uJIpDSCC8a',
 
   // Hub Mercure d'où l'écran reçoit les mises à jour en direct (statut,
   // casiers, activité) — voir DropperExtrasService. Laisser vide tant que ce
